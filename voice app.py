@@ -4,7 +4,7 @@
 # - Streamlit app
 # - Audio upload → librosa analysis → generative drawings
 # - Styles: line-art / scribble / contour / charcoal
-# - Added: Random Word API → Drawing Theme Influence
+# - Added: Random Word API + Automatic BPM→Color mapping
 # =========================================================
 
 import io
@@ -27,27 +27,27 @@ st.set_page_config(
 st.title("🎧 WaveSketch: Drawing with Sound Waves")
 st.write(
     "Upload a short voice or sound clip. "
-    "This app analyzes the waveform and generates **drawing-style art** "
-    "based on sound intensity, rhythm, and movement."
+    "The waveform becomes **drawing-style art**, and color changes automatically "
+    "based on the **tempo (BPM)** of the audio."
 )
 
 # ---------------------------------------------------------
 # RANDOM WORD API → DRAWING THEME
 # ---------------------------------------------------------
 def get_random_theme():
-    """Random Word API에서 단어 하나 가져오기"""
     url = "https://random-word-api.herokuapp.com/word"
     try:
-        word = requests.get(url).json()[0]
-        return word.lower()
+        return requests.get(url).json()[0].lower()
     except:
         return "abstract"
+
 
 # ---------------------------------------------------------
 # UTIL FUNCTIONS
 # ---------------------------------------------------------
 def normalize(value, min_val, max_val):
-    return float(np.clip((value - min_val) / (max_val - min_val + 1e-8), 0.0, 1.0))
+    return float(np.clip((value - min_val) / (max_val - min_val + 1e-8), 0, 1))
+
 
 def render_figure_to_bytes(fig):
     buf = io.BytesIO()
@@ -55,6 +55,30 @@ def render_figure_to_bytes(fig):
     buf.seek(0)
     plt.close(fig)
     return buf
+
+
+# ---------------------------------------------------------
+# BPM → COLOR
+# ---------------------------------------------------------
+def get_color_from_bpm(features):
+    """
+    Converts BPM into an RGB color.
+    Slow → purple/blue
+    Medium → teal
+    Fast → yellow/green
+    """
+    x = normalize(features["tempo"], 40.0, 180.0)
+
+    r = 0.4 + 0.6 * x
+    g = 0.2 + 0.7 * x
+    b = 1.0 - 0.7 * x
+
+    return (
+        float(np.clip(r, 0, 1)),
+        float(np.clip(g, 0, 1)),
+        float(np.clip(b, 0, 1)),
+    )
+
 
 # ---------------------------------------------------------
 # AUDIO ANALYSIS
@@ -97,26 +121,26 @@ def analyze_audio(file, target_points=1200):
 
     return t, y_ds, features
 
+
 # ---------------------------------------------------------
-# DRAWING STYLE FUNCTIONS (+ THEME INFLUENCE)
+# DRAWING STYLE FUNCTIONS (+ THEME + COLOR)
 # ---------------------------------------------------------
-def draw_line_art(t, y, features, complexity, thickness, seed, theme_influence):
+def draw_line_art(t, y, features, complexity, thickness, seed, theme_influence, draw_color):
     random.seed(seed)
     np.random.seed(seed)
 
     amp = y / (np.max(np.abs(y)) + 1e-8)
     base_y = 0.5 + amp * 0.35
 
-    energy_n = normalize(features["rms_mean"], 0.0, 0.1)
+    energy_n = normalize(features["rms_mean"], 0, 0.1)
     jitter_scale = (0.01 + energy_n * 0.03) * theme_influence["jitter_boost"]
 
     n_layers = 1 + complexity
 
     fig, ax = plt.subplots(figsize=(6, 8))
-    ax.set_facecolor("white")
+    ax.axis("off")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.axis("off")
 
     for i in range(n_layers):
         offset = (i - (n_layers - 1) / 2) * 0.03
@@ -124,20 +148,20 @@ def draw_line_art(t, y, features, complexity, thickness, seed, theme_influence):
         y_line = base_y + offset + jitter * (i / max(1, n_layers - 1))
 
         alpha = 0.3 + 0.4 * (1 - i / max(1, n_layers - 1))
-        ax.plot(t, y_line, color="black", linewidth=thickness, alpha=alpha)
+        ax.plot(t, y_line, color=draw_color, linewidth=thickness, alpha=alpha)
 
     return render_figure_to_bytes(fig)
 
 
-def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_influence):
+def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_influence, draw_color):
     random.seed(seed)
     np.random.seed(seed)
 
     amp = y / (np.max(np.abs(y)) + 1e-8)
     base_y = 0.5 + amp * 0.25
 
-    energy_n = normalize(features["rms_mean"], 0.0, 0.1)
-    zcr_n = normalize(features["zcr_mean"], 0.0, 0.3)
+    energy_n = normalize(features["rms_mean"], 0, 0.1)
+    zcr_n = normalize(features["zcr_mean"], 0, 0.3)
 
     jitter_base = (0.02 + energy_n * 0.04) * theme_influence["jitter_boost"]
     jagged_factor = (0.01 + (1 - zcr_n) * 0.03) * theme_influence["curve_strength"]
@@ -145,10 +169,9 @@ def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_influen
     n_paths = 5 + complexity * 3
 
     fig, ax = plt.subplots(figsize=(6, 8))
-    ax.set_facecolor("white")
+    ax.axis("off")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.axis("off")
 
     for _ in range(n_paths):
         jitter = np.random.normal(scale=jitter_base, size=len(base_y))
@@ -157,23 +180,24 @@ def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_influen
         y_line = base_y + jitter + jagged * np.sign(np.gradient(base_y))
 
         ax.plot(
-            t, y_line,
+            t,
+            y_line,
             linewidth=thickness * (0.5 + np.random.rand()),
-            alpha=0.03 + 0.15 * np.random.rand(),
-            color="black"
+            alpha=0.04 + 0.15 * np.random.rand(),
+            color=draw_color,
         )
 
     return render_figure_to_bytes(fig)
 
 
-def draw_contour_drawing(t, y, features, complexity, thickness, seed, theme_influence):
+def draw_contour_drawing(t, y, features, complexity, thickness, seed, theme_influence, draw_color):
     random.seed(seed)
     np.random.seed(seed)
 
     amp = y / (np.max(np.abs(y)) + 1e-8)
 
-    energy_n = normalize(features["rms_mean"], 0.0, 0.1)
-    tempo_n = normalize(features["tempo"], 40.0, 180.0)
+    energy_n = normalize(features["rms_mean"], 0, 0.1)
+    tempo_n = normalize(features["tempo"], 40, 180)
 
     base_radius = 0.3 + energy_n * 0.2
     radius = (base_radius + amp * 0.25) * theme_influence["curve_strength"]
@@ -182,10 +206,9 @@ def draw_contour_drawing(t, y, features, complexity, thickness, seed, theme_infl
     n_contours = 2 + complexity
 
     fig, ax = plt.subplots(figsize=(6, 8))
-    ax.set_facecolor("white")
+    ax.axis("off")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.axis("off")
 
     for i in range(n_contours):
         offset_r = (i - (n_contours - 1) / 2) * 0.015
@@ -195,35 +218,29 @@ def draw_contour_drawing(t, y, features, complexity, thickness, seed, theme_infl
         x = 0.5 + r_line * np.cos(angles)
         y_line = 0.5 + r_line * np.sin(angles)
 
-        ax.plot(
-            x, y_line,
-            linewidth=thickness,
-            color="black",
-            alpha=0.15 + 0.25 * (1 - i / max(1, n_contours - 1))
-        )
+        alpha = 0.15 + 0.25 * (1 - i / max(1, n_contours - 1))
+        ax.plot(x, y_line, linewidth=thickness, color=draw_color, alpha=alpha)
 
     return render_figure_to_bytes(fig)
 
 
-def draw_charcoal_style(t, y, features, complexity, thickness, seed, theme_influence):
+def draw_charcoal_style(t, y, features, complexity, thickness, seed, theme_influence, draw_color):
     random.seed(seed)
     np.random.seed(seed)
 
     amp = y / (np.max(np.abs(y)) + 1e-8)
     base_y = 0.5 + amp * 0.2
 
-    energy_n = normalize(features["rms_mean"], 0.0, 0.1)
-    centroid_n = normalize(features["centroid_mean"], 500, 5000)
-
+    energy_n = normalize(features["rms_mean"], 0, 0.1)
     n_strokes = int((80 + complexity * 40) * theme_influence["density_mul"])
+
     stroke_min_len = int(len(t) * 0.03)
     stroke_max_len = int(len(t) * 0.12)
 
     fig, ax = plt.subplots(figsize=(6, 8))
-    ax.set_facecolor("#f5f5f0")
+    ax.axis("off")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.axis("off")
 
     for _ in range(n_strokes):
         start = random.randint(0, len(t) - stroke_min_len - 1)
@@ -231,20 +248,20 @@ def draw_charcoal_style(t, y, features, complexity, thickness, seed, theme_influ
         end = min(len(t) - 1, start + length)
 
         x_seg = t[start:end]
-        y_seg = base_y[start:end]
+        y_seg = base_y[start:end] + np.random.normal(
+            scale=0.01 + energy_n * 0.03, size=end - start
+        )
 
-        jitter = np.random.normal(scale=0.01 + energy_n * 0.03, size=len(y_seg))
-        y_seg = y_seg + jitter
-
-        gray = 0.1 + 0.4 * (1 - centroid_n)
         ax.plot(
-            x_seg, y_seg,
+            x_seg,
+            y_seg,
             linewidth=thickness * np.random.uniform(0.7, 1.5),
-            alpha=0.03 + 0.12 * np.random.rand(),
-            color=(gray, gray, gray)
+            alpha=0.04 + 0.1 * np.random.rand(),
+            color=draw_color,
         )
 
     return render_figure_to_bytes(fig)
+
 
 # ---------------------------------------------------------
 # SIDEBAR CONTROLS
@@ -253,7 +270,7 @@ st.sidebar.header("Drawing Controls")
 
 drawing_style = st.sidebar.selectbox(
     "Drawing Style",
-    ["Line Art", "Scribble Art", "Contour Drawing", "Charcoal / Ink"]
+    ["Line Art", "Scribble Art", "Contour Drawing", "Charcoal / Ink"],
 )
 
 complexity = st.sidebar.slider("Complexity", 1, 10, 5)
@@ -261,7 +278,7 @@ thickness = st.sidebar.slider("Base Line Thickness", 1, 6, 2)
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
 # ---------------------------------------------------------
-# THEME from API
+# THEME FROM API
 # ---------------------------------------------------------
 st.sidebar.markdown("---")
 st.sidebar.header("Drawing Theme (via API)")
@@ -272,11 +289,10 @@ if st.sidebar.button("Get Random Theme"):
 theme = st.session_state.get("theme_word", None)
 
 if theme:
-    st.sidebar.success(f"🎨 Theme: **{theme}**")
+    st.sidebar.success(f"Theme: **{theme}**")
 else:
     st.sidebar.info("No theme yet.")
 
-# API theme → influence parameters
 theme_influence = {"jitter_boost": 1.0, "curve_strength": 1.0, "density_mul": 1.0}
 
 if theme:
@@ -292,6 +308,7 @@ if theme:
         theme_influence["density_mul"] = 0.8
         theme_influence["curve_strength"] = 1.1
 
+
 # ---------------------------------------------------------
 # MAIN UI
 # ---------------------------------------------------------
@@ -299,7 +316,7 @@ st.subheader("1️⃣ Upload Audio")
 
 uploaded_file = st.file_uploader(
     "Upload a short sound / voice file (WAV, MP3, M4A)",
-    type=["wav", "mp3", "m4a"]
+    type=["wav", "mp3", "m4a"],
 )
 
 if uploaded_file:
@@ -308,6 +325,9 @@ if uploaded_file:
 
     with st.spinner("Analyzing sound..."):
         t, y_ds, feats = analyze_audio(uploaded_file)
+
+    # COLOR BASED ON BPM
+    draw_color = get_color_from_bpm(feats)
 
     st.subheader("2️⃣ Audio Features")
     col1, col2 = st.columns(2)
@@ -323,13 +343,13 @@ if uploaded_file:
     st.subheader("3️⃣ Generated Drawing")
 
     if drawing_style == "Line Art":
-        img_buf = draw_line_art(t, y_ds, feats, complexity, thickness, seed, theme_influence)
+        img_buf = draw_line_art(t, y_ds, feats, complexity, thickness, seed, theme_influence, draw_color)
     elif drawing_style == "Scribble Art":
-        img_buf = draw_scribble_art(t, y_ds, feats, complexity, thickness, seed, theme_influence)
+        img_buf = draw_scribble_art(t, y_ds, feats, complexity, thickness, seed, theme_influence, draw_color)
     elif drawing_style == "Contour Drawing":
-        img_buf = draw_contour_drawing(t, y_ds, feats, complexity, thickness, seed, theme_influence)
+        img_buf = draw_contour_drawing(t, y_ds, feats, complexity, thickness, seed, theme_influence, draw_color)
     else:
-        img_buf = draw_charcoal_style(t, y_ds, feats, complexity, thickness, seed, theme_influence)
+        img_buf = draw_charcoal_style(t, y_ds, feats, complexity, thickness, seed, theme_influence, draw_color)
 
     st.image(img_buf, caption=f"{drawing_style} (Theme: {theme})", use_container_width=True)
 
@@ -338,7 +358,7 @@ if uploaded_file:
         "📥 Download Drawing",
         img_buf,
         file_name="wavesketch_drawing.png",
-        mime="image/png"
+        mime="image/png",
     )
 
 else:

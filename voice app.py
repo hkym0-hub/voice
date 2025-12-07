@@ -42,9 +42,6 @@ def get_emotion_thickness_multiplier(emotion):
     }
     return table.get(emotion, 1.0)
 
-emotion_label = "neutral"  # 기본값
-emotion_mul = get_emotion_thickness_multiplier(emotion_label)
-
 
 # ---------------------------------------------------------
 # Utility
@@ -294,6 +291,26 @@ drawing_style = st.sidebar.selectbox(
 
 complexity = st.sidebar.slider("Complexity", 1, 10, 5)
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
+
+# ⭐ 감정 선택 UI
+emotion_label = st.sidebar.selectbox(
+    "Emotion",
+    ["neutral", "joy", "sadness", "anger", "fear", "surprise"]
+)
+emotion_mul = get_emotion_thickness_multiplier(emotion_label)
+
+# ⭐ API KEY UI 복구됨
+st.sidebar.header("API Settings (optional)")
+api_key = st.sidebar.text_input(
+    "AssemblyAI API Key",
+    placeholder="Enter your AssemblyAI API key...",
+    type="password"
+)
+
+if api_key:
+    st.sidebar.success("API Key registered ✔")
+else:
+    st.sidebar.info("API Key not set (emotion auto-detection disabled)")
 
 
 # ---------------------------------------------------------

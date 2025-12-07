@@ -1,5 +1,5 @@
 # =========================================================
-# WaveSketch: Multi-Color Drawing from Sound Waves
+# WaveSketch: Emotion Colors + Audio-driven Thickness
 # =========================================================
 
 import io
@@ -14,38 +14,42 @@ import colorsys
 # Streamlit 기본 설정
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="WaveSketch - Multi-Color Sound Drawings",
+    page_title="WaveSketch - Emotion Colors + Audio Thickness",
     page_icon="🎧",
     layout="wide"
 )
 
 # ----------------------- (1) 안내 텍스트 -----------------------
-st.title("🎧 WaveSketch: Multi-Color Sound Drawings")
+st.title("🎧 WaveSketch: Emotion Colors + Audio-Driven Line Thickness")
 st.write(
     "Upload a short **WAV or MP3** file. "
-    "Your voice becomes a multi-color drawing based on **amplitude, pitch, energy, and rhythm (ZCR)**."
+    "Your voice generates a drawing where **emotion controls the colors** "
+    "and **sound dynamics control the line thickness**."
 )
-st.caption("⚠️ m4a는 서버환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용하세요.")
+st.caption("⚠️ m4a는 서버환경 문제로 지원되지 않습니다. WAV 또는 MP3 사용을 권장합니다.")
 
 
 # ---------------------------------------------------------
-# Emotion → Line Thickness Mapping
+# Emotion → Color Palette (Hue ranges)
 # ---------------------------------------------------------
-def get_emotion_thickness_multiplier(emotion):
-    # 감정별 차이를 더 극적으로 키운 버전
+def get_emotion_hue_range(emotion):
+    """
+    감정마다 고유한 색조(hue) 범위를 반환.
+    그 범위 안에서 랜덤하게 색을 생성함.
+    """
     table = {
-        "joy": 1.8,      # 밝고 두꺼움
-        "anger": 2.3,    # 가장 강하고 두꺼움
-        "surprise": 1.4, # 살짝 두꺼움
-        "neutral": 1.0,  # 기준
-        "fear": 0.6,     # 얇고 약함
-        "sadness": 0.4   # 가장 얇고 여림
+        "joy":      (0.10, 0.20),   # yellow → orange
+        "sadness":  (0.55, 0.65),   # blue → deep blue
+        "anger":    (0.95, 1.00),   # red
+        "fear":     (0.68, 0.75),   # purple
+        "surprise": (0.30, 0.40),   # green → mint
+        "neutral":  (0.00, 1.00),   # full spectrum
     }
-    return table.get(emotion, 1.0)
+    return table.get(emotion, (0.00, 1.00))
 
 
 # ---------------------------------------------------------
-# Utility
+# Utility: Render Matplotlib → streamlit image
 # ---------------------------------------------------------
 def render_figure_to_bytes(fig):
     buf = io.BytesIO()
@@ -62,18 +66,17 @@ def analyze_audio(uploaded_file, target_points=1200):
     uploaded_file.seek(0)
     y, sr = librosa.load(uploaded_file, sr=None, mono=True)
 
-    if len(y) > 10 * sr:
+    if len(y) > 10 * sr:  # 최대 10초까지만 분석
         y = y[:10 * sr]
 
     idx = np.linspace(0, len(y) - 1, target_points, dtype=int)
-    y_ds = y[idx]
+    y_ds = y[idx]  # downsample
     t = np.linspace(0, 1, len(y_ds))
 
     rms = librosa.feature.rms(y=y)[0]
     zcr = librosa.feature.zero_crossing_rate(y=y)[0]
-    centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
 
+    # 음정(pitch)은 색상 변화에 사용하지 않지만 feature로 출력
     try:
         pitches = librosa.yin(y, fmin=80, fmax=1000)
         pitch_mean = float(np.nanmean(pitches))
@@ -84,81 +87,80 @@ def analyze_audio(uploaded_file, target_points=1200):
         "sr": sr,
         "rms": float(np.mean(rms)),
         "zcr": float(np.mean(zcr)),
-        "centroid": float(np.mean(centroid)),
-        "tempo": float(tempo),
-        "pitch": pitch_mean
+        "pitch": pitch_mean,
     }
 
     return t, y_ds, features
 
 
 # ---------------------------------------------------------
-# COLOR ENGINE
+# COLOR ENGINE (Emotion → Hue range)
 # ---------------------------------------------------------
-def get_dynamic_color(amplitude, pitch, energy, zcr):
-    amp = np.clip(abs(amplitude), 0, 1)
-    v = 0.2 + amp * 0.8  # brightness
+def get_emotion_color(emotion):
+    hue_min, hue_max = get_emotion_hue_range(emotion)
+    h = random.uniform(hue_min, hue_max)
 
-    pitch_norm = np.clip((pitch - 80) / 270, 0, 1)
-
-    if pitch_norm < 0.5:
-        h = 0.6 - pitch_norm * 0.6
-    else:
-        h = 0.3 - (pitch_norm - 0.5) * 0.3
-
-    h = h % 1.0
-
-    energy_norm = np.clip(energy * 15, 0, 1)
-    s = 0.2 + energy_norm * 0.8
-
-    zcr_norm = np.clip(zcr * 50, 0, 1)
-    h = (h + (random.random() - 0.5) * 0.2 * zcr_norm) % 1.0
+    s = random.uniform(0.6, 1.0)  # vivid saturation
+    v = random.uniform(0.7, 1.0)  # bright value
 
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return (float(r), float(g), float(b))
 
 
 # ---------------------------------------------------------
-# LINE STYLE (emotion + amplitude 반영)
+# THICKNESS ENGINE (Audio-driven)
 # ---------------------------------------------------------
-def draw_line_art(t, y, feats, complexity, seed, emotion_mul):
+def compute_line_thickness(amplitude, rms, zcr):
+    """
+    소리 세기(amplitude, rms, zcr)에 따라 선 굵기 변화.
+    감정은 굵기에 영향을 주지 않음.
+    """
+    amp_factor = abs(amplitude) * 4
+    rms_factor = rms * 30
+    zcr_factor = zcr * 8
+
+    thickness = 1.0 + amp_factor + rms_factor + zcr_factor
+    return max(0.5, thickness)  # 최소 굵기 보장
+
+
+# ---------------------------------------------------------
+# Drawing: Line Style Only
+# ---------------------------------------------------------
+def draw_line_style(t, y, feats, emotion, seed):
     random.seed(seed)
     np.random.seed(seed)
 
-    amp = y / (np.max(np.abs(y)) + 1e-8)  # -1~1 → -1~1
-    base_y = 0.5 + amp * 0.35
-    n_layers = 1 + complexity
+    amp = y / (np.max(np.abs(y)) + 1e-8)
 
-    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
+    rms = feats["rms"]
+    zcr = feats["zcr"]
 
     fig, ax = plt.subplots(figsize=(6, 8))
     ax.axis("off")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
-    # 감정 + 음량에 따라 선 두께가 크게 달라지도록 설계
-    base_width = 1.2  # neutral, quiet일 때 최소 두께 기준
+    base_y = 0.5 + amp * 0.35  # 파형 변환
+    n_layers = 8  # 고정된 레이어 수
 
     for layer in range(n_layers):
         offset = (layer - (n_layers - 1) / 2) * 0.03
         y_line = base_y + offset
-        alpha = max(0.05, 0.35 - layer * 0.03)
 
         for i in range(len(t) - 1):
-            color = get_dynamic_color(amp[i], pitch, energy, zcr)
+            color = get_emotion_color(emotion)
 
-            # amplitude(0~1) → 1 ~ 4 배
-            local_amp = float(np.clip(abs(amp[i]), 0, 1))
-            amp_factor = 1.0 + local_amp * 3.0
-
-            # 최종 선 두께 = 기본 * 감정 * 음량
-            linewidth = base_width * emotion_mul * amp_factor
+            lw = compute_line_thickness(
+                amplitude=amp[i],
+                rms=rms,
+                zcr=zcr
+            )
 
             ax.plot(
                 t[i:i+2], y_line[i:i+2],
                 color=color,
-                linewidth=linewidth,
-                alpha=alpha
+                linewidth=lw,
+                alpha=0.7,
             )
 
     return render_figure_to_bytes(fig)
@@ -169,36 +171,26 @@ def draw_line_art(t, y, feats, complexity, seed, emotion_mul):
 # ---------------------------------------------------------
 st.sidebar.header("Drawing Controls")
 
-# 이제 스타일 선택은 없고 복잡도/시드만 조절
-complexity = st.sidebar.slider("Complexity (Layer Count)", 1, 10, 5)
-seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
-
-# ⭐ 감정 선택 UI
 emotion_label = st.sidebar.selectbox(
-    "Emotion",
+    "Emotion (Affects Colors)",
     ["neutral", "joy", "sadness", "anger", "fear", "surprise"]
 )
-emotion_mul = get_emotion_thickness_multiplier(emotion_label)
 
-# ⭐ API KEY UI
-st.sidebar.header("AssemblyAI API")
+seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
+
+# AssemblyAI API 미사용이지만 입력창 유지
+st.sidebar.header("AssemblyAI API (Optional)")
 api_key = st.sidebar.text_input(
     "AssemblyAI API Key",
-    placeholder="Enter your AssemblyAI API key...",
+    placeholder="Enter your API key...",
     type="password"
 )
 
-if api_key:
-    st.sidebar.success("API Key registered ✔")
-else:
-    st.sidebar.info("API Key not set (emotion auto-detection disabled)")
-
 
 # ---------------------------------------------------------
-# (2) Upload Audio
+# 1️⃣ Upload Audio
 # ---------------------------------------------------------
 st.subheader("1️⃣ Upload Audio")
-
 uploaded_file = st.file_uploader("Upload WAV or MP3", type=["wav", "mp3"])
 
 if not uploaded_file:
@@ -206,69 +198,60 @@ if not uploaded_file:
 
 st.audio(uploaded_file)
 
-with st.spinner("Analyzing audio…"):
-    t, y_ds, feats = analyze_audio(uploaded_file)
+t, y_ds, feats = analyze_audio(uploaded_file)
 
 
 # ---------------------------------------------------------
-# (3) Extracted Audio Features
+# 2️⃣ Extracted Audio Features
 # ---------------------------------------------------------
 st.subheader("2️⃣ Extracted Audio Features")
 st.json(feats)
 
 
 # ---------------------------------------------------------
-# (4) Generated Drawing
+# 3️⃣ Generated Drawing
 # ---------------------------------------------------------
 st.subheader("3️⃣ Generated Drawing")
 
-img_buf = draw_line_art(t, y_ds, feats, complexity, seed, emotion_mul)
+img_buf = draw_line_style(t, y_ds, feats, emotion_label, seed)
 
 st.image(
     img_buf,
-    caption=f"Line Style – audio-driven multi-color drawing ({emotion_label})",
+    caption=f"Line Style – Emotion Colors + Audio Thickness",
     use_container_width=True
 )
 
 
 # ---------------------------------------------------------
-# (5) 🧵 Emotion-Based Line Thickness Guide
+# 4️⃣ Emotion → Color Guide
 # ---------------------------------------------------------
-st.markdown("## 🧵 Emotion-Based Line Thickness Guide")
+st.markdown("## 🎨 Emotion-Based Color Guide")
 st.markdown("""
-Each emotion influences the **thickness of the lines** in the artwork.
+Each emotion generates colors from a **unique hue range**, giving each drawing a distinct emotional tone.
 
-### Emotion → Thickness Mapping  
-- **joy** → much thicker, lively lines (~1.8×)  
-- **anger** → the strongest and thickest strokes (~2.3×)  
-- **surprise** → slightly thicker and sharper lines (~1.4×)  
-- **neutral** → standard thickness (1.0×)  
-- **fear** → thinner, more fragile lines (~0.6×)  
-- **sadness** → the thinnest and most delicate strokes (~0.4×)  
+### Emotion → Color Mapping  
+- **joy** → Yellow / Orange spectrum  
+- **sadness** → Blue / Deep blue  
+- **anger** → Red / Crimson  
+- **fear** → Purple / Dark violet  
+- **surprise** → Green / Mint  
+- **neutral** → All colors (full spectrum, softer saturation)
 
-On top of this, **louder moments** in your voice make lines locally thicker,
-while quieter parts stay almost thread-like.
+Emotion affects **only color**, not thickness.
 """)
 
 
 # ---------------------------------------------------------
-# (6) 🎨 Color Interpretation Guide
+# 5️⃣ Audio → Line Thickness Guide
 # ---------------------------------------------------------
-st.markdown("## 🎨 Color Interpretation Guide")
+st.markdown("## 🧵 Audio-Based Line Thickness Guide")
 st.markdown("""
-### 🌗 Dark vs Bright Colors
-Quiet parts → darker  
-Loud parts → brighter  
+The **thickness** of each line segment is determined by audio dynamics:
 
-### 🌈 Hue (Cool → Warm)
-Low pitch → blue  
-Mid pitch → green/yellow  
-High pitch → orange/red  
+### Thickness Factors  
+- **Amplitude** (momentary volume) → stronger → thicker  
+- **RMS Energy** (overall loudness) → higher → thicker  
+- **ZCR** (noisiness/consonants) → higher → slightly thicker  
 
-### 🎯 Saturation
-High RMS → vivid colors  
-Low RMS → soft pastel  
-
-### 🌀 ZCR
-Noisy sections → color jitter  
+So the artwork visually reflects how **intense or calm** your voice was.
 """)

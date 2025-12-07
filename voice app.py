@@ -300,7 +300,7 @@ emotion_label = st.sidebar.selectbox(
 emotion_mul = get_emotion_thickness_multiplier(emotion_label)
 
 # ⭐ API KEY UI 복구됨
-st.sidebar.header("API Settings (optional)")
+st.sidebar.header("AssemblyAI API")
 api_key = st.sidebar.text_input(
     "AssemblyAI API Key",
     placeholder="Enter your AssemblyAI API key...",

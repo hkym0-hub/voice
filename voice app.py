@@ -32,13 +32,14 @@ st.caption("⚠️ m4a는 서버환경 문제로 지원되지 않습니다. WAV 
 # Emotion → Line Thickness Mapping
 # ---------------------------------------------------------
 def get_emotion_thickness_multiplier(emotion):
+    # 감정별 차이를 더 극적으로 키운 버전
     table = {
-        "joy": 1.6,
-        "anger": 1.8,
-        "surprise": 1.3,
-        "neutral": 1.0,
-        "fear": 0.7,
-        "sadness": 0.5
+        "joy": 1.8,      # 밝고 두꺼움
+        "anger": 2.3,    # 가장 강하고 두꺼움
+        "surprise": 1.4, # 살짝 두꺼움
+        "neutral": 1.0,  # 기준
+        "fear": 0.6,     # 얇고 약함
+        "sadness": 0.4   # 가장 얇고 여림
     }
     return table.get(emotion, 1.0)
 
@@ -118,13 +119,13 @@ def get_dynamic_color(amplitude, pitch, energy, zcr):
 
 
 # ---------------------------------------------------------
-# DRAWING STYLES (emotion 적용)
+# LINE STYLE (emotion + amplitude 반영)
 # ---------------------------------------------------------
 def draw_line_art(t, y, feats, complexity, seed, emotion_mul):
     random.seed(seed)
     np.random.seed(seed)
 
-    amp = y / (np.max(np.abs(y)) + 1e-8)
+    amp = y / (np.max(np.abs(y)) + 1e-8)  # -1~1 → -1~1
     base_y = 0.5 + amp * 0.35
     n_layers = 1 + complexity
 
@@ -135,148 +136,32 @@ def draw_line_art(t, y, feats, complexity, seed, emotion_mul):
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
+    # 감정 + 음량에 따라 선 두께가 크게 달라지도록 설계
+    base_width = 1.2  # neutral, quiet일 때 최소 두께 기준
+
     for layer in range(n_layers):
         offset = (layer - (n_layers - 1) / 2) * 0.03
         y_line = base_y + offset
-        alpha = 0.35 - layer * 0.03
+        alpha = max(0.05, 0.35 - layer * 0.03)
 
         for i in range(len(t) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
+
+            # amplitude(0~1) → 1 ~ 4 배
+            local_amp = float(np.clip(abs(amp[i]), 0, 1))
+            amp_factor = 1.0 + local_amp * 3.0
+
+            # 최종 선 두께 = 기본 * 감정 * 음량
+            linewidth = base_width * emotion_mul * amp_factor
+
             ax.plot(
                 t[i:i+2], y_line[i:i+2],
                 color=color,
-                linewidth=1.5 * emotion_mul,
+                linewidth=linewidth,
                 alpha=alpha
             )
 
     return render_figure_to_bytes(fig)
-
-
-def draw_scribble_art(t, y, feats, complexity, seed, emotion_mul):
-    random.seed(seed)
-    np.random.seed(seed)
-
-    amp = y / (np.max(np.abs(y)) + 1e-8)
-    base_y = 0.5 + amp * 0.25
-    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
-
-    n_paths = 5 + complexity * 3
-
-    fig, ax = plt.subplots(figsize=(6, 8))
-    ax.axis("off")
-
-    for _ in range(n_paths):
-        jitter = np.random.normal(scale=0.02 + energy * 0.05, size=len(base_y))
-        y_line = base_y + jitter
-        alpha = 0.05 + random.random() * 0.10
-        base_width = 0.8 + random.random() * 1.5
-
-        for i in range(len(t) - 1):
-            color = get_dynamic_color(amp[i], pitch, energy, zcr)
-            ax.plot(
-                t[i:i+2], y_line[i:i+2],
-                color=color,
-                linewidth=base_width * emotion_mul,
-                alpha=alpha
-            )
-
-    return render_figure_to_bytes(fig)
-
-
-def draw_contour_wave(t, y, feats, complexity, seed, emotion_mul):
-    random.seed(seed)
-    np.random.seed(seed)
-
-    amp = y / (np.max(np.abs(y)) + 1e-8)
-    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
-
-    fig, ax = plt.subplots(figsize=(6, 8))
-    ax.axis("off")
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-1, 1)
-
-    base_r = 0.3 + energy * 0.5
-    angles = np.linspace(0, 2 * np.pi, len(amp))
-
-    for layer in range(1, complexity + 3):
-        offset = layer * 0.03
-        r_line = base_r + amp * 0.25 + offset
-        jitter = np.random.normal(scale=0.01 + zcr * 0.2, size=len(r_line))
-        r_line = r_line + jitter
-
-        x = r_line * np.cos(angles)
-        y2 = r_line * np.sin(angles)
-
-        for i in range(len(x) - 1):
-            color = get_dynamic_color(amp[i], pitch, energy, zcr)
-            ax.plot(
-                x[i:i+2], y2[i:i+2],
-                color=color,
-                linewidth=1.2 * emotion_mul,
-                alpha=0.7
-            )
-
-    return render_figure_to_bytes(fig)
-
-
-def draw_particle_drift(t, y, feats, complexity, seed, emotion_mul):
-    random.seed(seed)
-    np.random.seed(seed)
-
-    amp = y / (np.max(np.abs(y)) + 1e-8)
-    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
-
-    fig, ax = plt.subplots(figsize=(6, 8))
-    ax.axis("off")
-
-    n_particles = 150 * complexity
-
-    for _ in range(n_particles):
-        i = random.randint(0, len(amp) - 1)
-        x = t[i]
-        y_pos = 0.5 + amp[i] * 0.3
-
-        drift_x = x + np.random.normal(scale=0.02 + zcr * 0.1)
-        drift_y = y_pos + np.random.normal(scale=0.02 + energy * 0.1)
-
-        size = (6 + random.random() * 10) * emotion_mul
-        color = get_dynamic_color(amp[i], pitch, energy, zcr)
-
-        ax.scatter(drift_x, drift_y, color=color, s=size, alpha=0.7)
-
-    return render_figure_to_bytes(fig)
-
-
-def draw_spiral_bloom(t, y, feats, complexity, seed, emotion_mul):
-    random.seed(seed)
-    np.random.seed(seed)
-
-    amp = y / (np.max(np.abs(y)) + 1e-8)
-    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
-
-    fig, ax = plt.subplots(figsize=(6, 8))
-    ax.axis("off")
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-1, 1)
-
-    turns = 3 + complexity * 0.7
-    angles = np.linspace(0, turns * 2 * np.pi, len(amp))
-    radius = 0.1 + amp * 0.5 + np.random.normal(scale=0.02, size=len(amp))
-
-    x = radius * np.cos(angles)
-    y2 = radius * np.sin(angles)
-
-    for i in range(len(x) - 1):
-        color = get_dynamic_color(amp[i], pitch, energy, zcr)
-        ax.plot(
-            x[i:i+2], y2[i:i+2],
-            color=color,
-            linewidth=1.4 * emotion_mul,
-            alpha=0.8
-        )
-
-    return render_figure_to_bytes(fig)
-
 
 
 # ---------------------------------------------------------
@@ -284,12 +169,8 @@ def draw_spiral_bloom(t, y, feats, complexity, seed, emotion_mul):
 # ---------------------------------------------------------
 st.sidebar.header("Drawing Controls")
 
-drawing_style = st.sidebar.selectbox(
-    "Drawing Style",
-    ["Line Art", "Scribble Art", "Contour Wave", "Particle Drift", "Spiral Bloom"]
-)
-
-complexity = st.sidebar.slider("Complexity", 1, 10, 5)
+# 이제 스타일 선택은 없고 복잡도/시드만 조절
+complexity = st.sidebar.slider("Complexity (Layer Count)", 1, 10, 5)
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
 # ⭐ 감정 선택 UI
@@ -299,7 +180,7 @@ emotion_label = st.sidebar.selectbox(
 )
 emotion_mul = get_emotion_thickness_multiplier(emotion_label)
 
-# ⭐ API KEY UI 복구됨
+# ⭐ API KEY UI
 st.sidebar.header("AssemblyAI API")
 api_key = st.sidebar.text_input(
     "AssemblyAI API Key",
@@ -341,20 +222,11 @@ st.json(feats)
 # ---------------------------------------------------------
 st.subheader("3️⃣ Generated Drawing")
 
-if drawing_style == "Line Art":
-    img_buf = draw_line_art(t, y_ds, feats, complexity, seed, emotion_mul)
-elif drawing_style == "Scribble Art":
-    img_buf = draw_scribble_art(t, y_ds, feats, complexity, seed, emotion_mul)
-elif drawing_style == "Contour Wave":
-    img_buf = draw_contour_wave(t, y_ds, feats, complexity, seed, emotion_mul)
-elif drawing_style == "Particle Drift":
-    img_buf = draw_particle_drift(t, y_ds, feats, complexity, seed, emotion_mul)
-else:
-    img_buf = draw_spiral_bloom(t, y_ds, feats, complexity, seed, emotion_mul)
+img_buf = draw_line_art(t, y_ds, feats, complexity, seed, emotion_mul)
 
 st.image(
     img_buf,
-    caption=f"{drawing_style} – audio-driven multi-color drawing",
+    caption=f"Line Style – audio-driven multi-color drawing ({emotion_label})",
     use_container_width=True
 )
 
@@ -367,14 +239,15 @@ st.markdown("""
 Each emotion influences the **thickness of the lines** in the artwork.
 
 ### Emotion → Thickness Mapping  
-- **joy** → thicker lines (1.6×)  
-- **anger** → very thick, heavy lines (1.8×)  
-- **surprise** → slightly thicker lines (1.3×)  
+- **joy** → much thicker, lively lines (~1.8×)  
+- **anger** → the strongest and thickest strokes (~2.3×)  
+- **surprise** → slightly thicker and sharper lines (~1.4×)  
 - **neutral** → standard thickness (1.0×)  
-- **fear** → thinner, weaker lines (0.7×)  
-- **sadness** → the thinnest and most delicate lines (0.5×)  
+- **fear** → thinner, more fragile lines (~0.6×)  
+- **sadness** → the thinnest and most delicate strokes (~0.4×)  
 
-This allows emotions to shape the weight and presence of the artwork.
+On top of this, **louder moments** in your voice make lines locally thicker,
+while quieter parts stay almost thread-like.
 """)
 
 

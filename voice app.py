@@ -3,8 +3,7 @@
 # WaveSketch: Multi-Color Drawing from Sound Waves
 # - Audio upload → librosa analysis → generative drawings
 # - Multi-color stroke mapping based on amplitude
-# - m4a/mp3/wav ALL supported via temp-file + audioread fallback
-# - API 기능 완전 제거 (Theme 제거)
+# - 안정성 위해 WAV / MP3만 지원 (m4a는 환경상 지원 불가)
 # =========================================================
 
 import io
@@ -13,8 +12,6 @@ import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
 import librosa
-import audioread
-import tempfile
 
 # ---------------------------------------------------------
 # Streamlit 기본 설정
@@ -27,9 +24,11 @@ st.set_page_config(
 
 st.title("🎧 WaveSketch: Multi-Color Sound Drawings")
 st.write(
-    "Upload a sound clip. The waveform becomes a **multi-colored drawing**, "
+    "Upload a short **WAV or MP3** file. "
+    "The waveform becomes a **multi-colored drawing**, "
     "where quiet moments turn blue and loud moments turn red."
 )
+st.caption("⚠️ m4a는 서버 코덱 제한 때문에 지원되지 않습니다. 녹음 파일을 WAV/MP3로 변환해서 사용해 주세요.")
 
 # ---------------------------------------------------------
 # UTIL
@@ -44,52 +43,18 @@ def render_figure_to_bytes(fig):
     plt.close(fig)
     return buf
 
-
 # ---------------------------------------------------------
-# UNIVERSAL AUDIO LOADER (m4a 지원)
-# ---------------------------------------------------------
-def load_audio_any_format(uploaded_file, target_sr=None):
-    """
-    Streamlit UploadedFile → temp file → safe load for m4a/mp3/wav.
-    """
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
-        tmp.write(uploaded_file.read())
-        tmp_path = tmp.name
-
-    # Try librosa first
-    try:
-        y, sr = librosa.load(tmp_path, sr=target_sr, mono=True)
-        return y, sr
-    except Exception:
-        pass
-
-    # Fallback using audioread
-    try:
-        with audioread.audio_open(tmp_path) as f:
-            sr = f.samplerate
-            data = []
-            for buf in f:
-                data.append(np.frombuffer(buf, dtype=np.int16))
-
-            y = np.hstack(data).astype(np.float32) / 32768.0
-
-            if target_sr and target_sr != sr:
-                y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
-                sr = target_sr
-
-            return y, sr
-
-    except Exception as e:
-        raise RuntimeError(f"Audio loading failed: {e}")
-
-
-# ---------------------------------------------------------
-# AUDIO ANALYSIS
+# AUDIO ANALYSIS (librosa.load 만 사용)
 # ---------------------------------------------------------
 def analyze_audio(uploaded_file, target_points=1200):
+    """
+    WAV / MP3 전용 분석.
+    """
     uploaded_file.seek(0)
-    y, sr = load_audio_any_format(uploaded_file, target_sr=None)
+    # librosa가 UploadedFile 객체도 직접 읽을 수 있음
+    y, sr = librosa.load(uploaded_file, sr=None, mono=True)
 
+    # 최대 10초까지만 사용
     if len(y) > 10 * sr:
         y = y[:10 * sr]
 
@@ -98,6 +63,7 @@ def analyze_audio(uploaded_file, target_points=1200):
     y_ds = y[idx]
     t = np.linspace(0, 1, len(y_ds))
 
+    # 특징 추출
     rms = librosa.feature.rms(y=y)[0]
     zcr = librosa.feature.zero_crossing_rate(y=y)[0]
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
@@ -110,7 +76,7 @@ def analyze_audio(uploaded_file, target_points=1200):
             fmax=librosa.note_to_hz("C7"),
         )
         pitch_mean = float(np.nanmean(pitch_vals))
-    except:
+    except Exception:
         pitch_mean = 0.0
 
     features = {
@@ -123,7 +89,6 @@ def analyze_audio(uploaded_file, target_points=1200):
     }
 
     return t, y_ds, features
-
 
 # ---------------------------------------------------------
 # MULTI-COLOR MAPPING (quiet→blue → … → red)
@@ -139,7 +104,6 @@ def get_color_from_amplitude(value):
         return ((x - 0.5) * 4, 1, 0)  # green→yellow
     else:
         return (1, 1 - (x - 0.75) * 4, 0)  # yellow→red
-
 
 # ---------------------------------------------------------
 # DRAWINGS
@@ -226,7 +190,6 @@ def draw_scribble_art(t, y, features, complexity, thickness, seed):
 
     return render_figure_to_bytes(fig)
 
-
 # ---------------------------------------------------------
 # SIDEBAR CONTROLS
 # ---------------------------------------------------------
@@ -241,45 +204,47 @@ complexity = st.sidebar.slider("Complexity", 1, 10, 5)
 thickness = st.sidebar.slider("Base Line Thickness", 1, 6, 2)
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
-
 # ---------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------
 st.subheader("1️⃣ Upload Audio")
 
 uploaded_file = st.file_uploader(
-    "Upload a short sound / voice file (WAV, MP3, M4A)",
-    type=["wav", "mp3", "m4a"],
+    "Upload a short sound / voice file (WAV, MP3 only)",
+    type=["wav", "mp3"],   # ❗ 여기서 m4a 제거
 )
 
 if uploaded_file:
     st.audio(uploaded_file)
 
-    with st.spinner("Analyzing sound..."):
-        t, y_ds, feats = analyze_audio(uploaded_file)
-
-    st.subheader("2️⃣ Audio Features")
-    st.json(feats)
-
-    st.subheader("3️⃣ Generated Multi-Color Drawing")
-
-    if drawing_style == "Line Art":
-        img_buf = draw_line_art(t, y_ds, feats, complexity, thickness, seed)
+    try:
+        with st.spinner("Analyzing sound..."):
+            t, y_ds, feats = analyze_audio(uploaded_file)
+    except Exception as e:
+        st.error("오디오를 불러오는 중 오류가 발생했습니다. 파일을 WAV/MP3로 변환해서 다시 시도해 주세요.")
+        st.code(str(e))
     else:
-        img_buf = draw_scribble_art(t, y_ds, feats, complexity, thickness, seed)
+        st.subheader("2️⃣ Audio Features")
+        st.json(feats)
 
-    st.image(
-        img_buf,
-        caption=f"{drawing_style} – Multi-color amplitude mapping",
-        use_container_width=True,
-    )
+        st.subheader("3️⃣ Generated Multi-Color Drawing")
 
-    st.download_button(
-        "📥 Download Drawing",
-        img_buf,
-        file_name="wavesketch_multicolor.png",
-        mime="image/png",
-    )
+        if drawing_style == "Line Art":
+            img_buf = draw_line_art(t, y_ds, feats, complexity, thickness, seed)
+        else:
+            img_buf = draw_scribble_art(t, y_ds, feats, complexity, thickness, seed)
 
+        st.image(
+            img_buf,
+            caption=f"{drawing_style} – Multi-color amplitude mapping",
+            use_container_width=True,
+        )
+
+        st.download_button(
+            "📥 Download Drawing",
+            img_buf,
+            file_name="wavesketch_multicolor.png",
+            mime="image/png",
+        )
 else:
-    st.info("Upload an audio file to begin 🎨")
+    st.info("Upload a WAV or MP3 file to begin 🎨")

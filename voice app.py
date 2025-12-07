@@ -2,9 +2,9 @@
 # =========================================================
 # WaveSketch: Multi-Color Drawing from Sound Waves
 # - Audio upload → librosa analysis → generative drawings
-# - Multi-color stroke mapping based on amplitude (dB)
-# - m4a/mp3/wav all supported via audioread fallback
-# - Random Word API → Theme Influence (kept because you chose A)
+# - Multi-color stroke mapping based on amplitude
+# - m4a/mp3/wav ALL supported via temp-file + audioread fallback
+# - Random Word API → Theme Influence (Option A)
 # =========================================================
 
 import io
@@ -14,7 +14,8 @@ import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
 import librosa
-import audioread   # ★ m4a 지원 핵심!
+import audioread
+import tempfile
 
 # ---------------------------------------------------------
 # Streamlit 기본 설정
@@ -27,8 +28,8 @@ st.set_page_config(
 
 st.title("🎧 WaveSketch: Multi-Color Sound Drawings")
 st.write(
-    "Upload a sound clip. Each tiny part of the waveform becomes a **colored stroke**, "
-    "where quiet moments turn blue and loud moments turn red, creating expressive multi-color art."
+    "Upload a sound clip. The waveform becomes a **multi-colored drawing**, "
+    "where quiet moments turn blue and loud moments turn red."
 )
 
 # ---------------------------------------------------------
@@ -39,6 +40,7 @@ def get_random_theme():
         return requests.get("https://random-word-api.herokuapp.com/word").json()[0].lower()
     except:
         return "abstract"
+
 
 # ---------------------------------------------------------
 # UTIL
@@ -55,47 +57,52 @@ def render_figure_to_bytes(fig):
 
 
 # ---------------------------------------------------------
-# ★★★ UNIVERSAL AUDIO LOADER (m4a 지원) ★★★
+# UNIVERSAL AUDIO LOADER (m4a 지원)
 # ---------------------------------------------------------
 def load_audio_any_format(uploaded_file, target_sr=None):
     """
-    Tries librosa.load first (soundfile backend).
-    If it fails (.m4a/.aac), uses audioread to decode via ffmpeg.
-    Always returns mono float32 waveform.
+    Streamlit UploadedFile → temp file → safe load for all audio formats.
     """
+    # Store to temporary file because audioread requires a file path
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
+        tmp.write(uploaded_file.read())
+        tmp_path = tmp.name
+
+    # Try librosa (soundfile backend)
     try:
-        # Try standard librosa load first
-        y, sr = librosa.load(uploaded_file, sr=target_sr, mono=True)
+        y, sr = librosa.load(tmp_path, sr=target_sr, mono=True)
         return y, sr
     except Exception:
-        pass  # fallback to ffmpeg-based loader below
+        pass
 
-    # Fallback → audioread (ffmpeg)
-    with audioread.audio_open(uploaded_file) as f:
-        sr = f.samplerate
-        data = []
+    # Fallback to audioread (FFmpeg)
+    try:
+        with audioread.audio_open(tmp_path) as f:
+            sr = f.samplerate
+            data = []
+            for buf in f:
+                data.append(np.frombuffer(buf, dtype=np.int16))
 
-        for buf in f:
-            data.append(np.frombuffer(buf, dtype=np.int16))
+            y = np.hstack(data).astype(np.float32) / 32768.0
 
-        y = np.hstack(data).astype(np.float32) / 32768.0  # normalize to -1~1
+            if target_sr and target_sr != sr:
+                y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
+                sr = target_sr
 
-        # Resample if needed
-        if target_sr and target_sr != sr:
-            y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
-            sr = target_sr
+            return y, sr
 
-        return y, sr
+    except Exception as e:
+        raise RuntimeError(f"Audio loading failed: {e}")
 
 
 # ---------------------------------------------------------
 # AUDIO ANALYSIS
 # ---------------------------------------------------------
-def analyze_audio(file, target_points=1200):
-    # ★ audio loader 변경됨
-    y, sr = load_audio_any_format(file, target_sr=None)
+def analyze_audio(uploaded_file, target_points=1200):
+    uploaded_file.seek(0)  # Important
+    y, sr = load_audio_any_format(uploaded_file, target_sr=None)
 
-    # limit to 10 seconds
+    # limit to 10s
     if len(y) > 10 * sr:
         y = y[:10 * sr]
 
@@ -110,7 +117,6 @@ def analyze_audio(file, target_points=1200):
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
 
-    # pitch
     try:
         pitch_vals = librosa.yin(
             y,
@@ -134,33 +140,23 @@ def analyze_audio(file, target_points=1200):
 
 
 # ---------------------------------------------------------
-# MULTI-COLOR MAP
+# MULTI-COLOR MAPPING (quiet→blue, loud→red)
 # ---------------------------------------------------------
 def get_color_from_amplitude(value):
     x = float(np.clip(value, 0, 1))
 
-    if x < 0.25:      # blue → cyan
-        r = 0
-        g = x * 4
-        b = 1
-    elif x < 0.5:     # cyan → green
-        r = 0
-        g = 1
-        b = 1 - (x - 0.25) * 4
-    elif x < 0.75:    # green → yellow
-        r = (x - 0.5) * 4
-        g = 1
-        b = 0
-    else:             # yellow → red
-        r = 1
-        g = 1 - (x - 0.75) * 4
-        b = 0
-
-    return (float(r), float(g), float(b))
+    if x < 0.25:
+        return (0, x * 4, 1)  # blue → cyan
+    elif x < 0.5:
+        return (0, 1, 1 - (x - 0.25) * 4)  # cyan → green
+    elif x < 0.75:
+        return ((x - 0.5) * 4, 1, 0)  # green → yellow
+    else:
+        return (1, 1 - (x - 0.75) * 4, 0)  # yellow → red
 
 
 # ---------------------------------------------------------
-# DRAWING FUNCTIONS
+# DRAWINGS
 # ---------------------------------------------------------
 def draw_line_art(t, y, features, complexity, thickness, seed, theme_inf):
     random.seed(seed)
@@ -169,7 +165,7 @@ def draw_line_art(t, y, features, complexity, thickness, seed, theme_inf):
     amp = y / (np.max(np.abs(y)) + 1e-8)
     base_y = 0.5 + amp * 0.35
 
-    energy_n = normalize(features["rms_mean"], 0.0, 0.1)
+    energy_n = normalize(features["rms_mean"], 0, 0.1)
     jitter_scale = (0.01 + energy_n * 0.03) * theme_inf["jitter_boost"]
 
     n_layers = 1 + complexity
@@ -201,8 +197,6 @@ def draw_line_art(t, y, features, complexity, thickness, seed, theme_inf):
     return render_figure_to_bytes(fig)
 
 
-# (scribble, contour, charcoal functions 동일 — 생략 가능하지만 유지)
-
 def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_inf):
     random.seed(seed)
     np.random.seed(seed)
@@ -210,8 +204,8 @@ def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_inf):
     amp = y / (np.max(np.abs(y)) + 1e-8)
     base_y = 0.5 + amp * 0.25
 
-    energy_n = normalize(features["rms_mean"], 0.0, 0.1)
-    zcr_n = normalize(features["zcr_mean"], 0.0, 0.3)
+    energy_n = normalize(features["rms_mean"], 0, 0.1)
+    zcr_n = normalize(features["zcr_mean"], 0, 0.3)
 
     jitter_base = (0.02 + energy_n * 0.04) * theme_inf["jitter_boost"]
     jagged_factor = (0.01 + (1 - zcr_n) * 0.03) * theme_inf["curve_strength"]
@@ -229,101 +223,9 @@ def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_inf):
 
         y_line = base_y + jitter + jagged * np.sign(np.gradient(base_y))
 
-        alpha = 0.03 + 0.12 * np.random.rand()
+        alpha = 0.04 + 0.12 * np.random.rand()
         width = thickness * (0.5 + np.random.rand())
 
         for j in range(len(t) - 1):
             amp_norm = abs(amp[j])
-            seg_color = get_color_from_amplitude(amp_norm)
-
-            ax.plot(
-                t[j:j+2],
-                y_line[j:j+2],
-                color=seg_color,
-                linewidth=width,
-                alpha=alpha,
-            )
-
-    return render_figure_to_bytes(fig)
-
-
-# ---------------------------------------------------------
-# SIDEBAR CONTROLS
-# ---------------------------------------------------------
-st.sidebar.header("Drawing Controls")
-
-drawing_style = st.sidebar.selectbox(
-    "Drawing Style",
-    ["Line Art", "Scribble Art"],
-)
-
-complexity = st.sidebar.slider("Complexity", 1, 10, 5)
-thickness = st.sidebar.slider("Base Line Thickness", 1, 6, 2)
-seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
-
-
-# ---------------------------------------------------------
-# THEME (via API)
-# ---------------------------------------------------------
-st.sidebar.markdown("---")
-st.sidebar.header("Drawing Theme (via API)")
-
-if st.sidebar.button("Get Random Theme"):
-    st.session_state["theme_word"] = get_random_theme()
-
-theme = st.session_state.get("theme_word", None)
-
-if theme:
-    st.sidebar.success(f"🎨 Theme: **{theme}**")
-
-theme_inf = {"jitter_boost": 1.0, "curve_strength": 1.0}
-
-if theme:
-    if theme in ["wave", "flow", "ocean"]:
-        theme_inf["curve_strength"] = 1.3
-    elif theme in ["wind", "air"]:
-        theme_inf["jitter_boost"] = 1.5
-
-
-# ---------------------------------------------------------
-# MAIN UI
-# ---------------------------------------------------------
-st.subheader("1️⃣ Upload Audio")
-
-uploaded_file = st.file_uploader(
-    "Upload a short sound / voice file (WAV, MP3, M4A)",
-    type=["wav", "mp3", "m4a"],
-)
-
-if uploaded_file:
-    st.audio(uploaded_file)
-    uploaded_file.seek(0)
-
-    with st.spinner("Analyzing sound..."):
-        t, y_ds, feats = analyze_audio(uploaded_file)
-
-    st.subheader("2️⃣ Audio Features")
-    st.write(feats)
-
-    st.subheader("3️⃣ Generated Multi-Color Drawing")
-
-    if drawing_style == "Line Art":
-        img_buf = draw_line_art(t, y_ds, feats, complexity, thickness, seed, theme_inf)
-    else:
-        img_buf = draw_scribble_art(t, y_ds, feats, complexity, thickness, seed, theme_inf)
-
-    st.image(
-        img_buf,
-        caption=f"{drawing_style} (Theme: {theme}) – multi-color amplitude mapping",
-        use_container_width=True,
-    )
-
-    st.subheader("4️⃣ Download")
-    st.download_button(
-        "📥 Download Drawing",
-        img_buf,
-        file_name="wavesketch_multicolor.png",
-        mime="image/png",
-    )
-else:
-    st.info("Upload an audio file to begin 🎨")
+            s

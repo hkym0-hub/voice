@@ -2,13 +2,16 @@
 # =========================================================
 # WaveSketch: Multi-Color Drawing from Sound Waves
 # - Audio upload → librosa analysis → generative drawings
-# - Multi-color stroke mapping based on amplitude (dB)
+# - Multi-color strokes based on amplitude + audio features
 # - Random Word API → Theme Influence
+# - User-selectable color themes (Pastel / Neon / Ink / Fire / Ocean)
 # =========================================================
 
 import io
 import random
 import requests
+import colorsys
+
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -26,7 +29,7 @@ st.set_page_config(
 st.title("🎧 WaveSketch: Multi-Color Sound Drawings")
 st.write(
     "Upload a sound clip. Each tiny part of the waveform becomes a **colored stroke**, "
-    "where quiet moments turn blue and loud moments turn red, creating expressive multi-color art."
+    "where quiet moments stay cool and loud moments burn warm, creating expressive multi-color art."
 )
 
 # ---------------------------------------------------------
@@ -39,8 +42,37 @@ def get_random_theme():
         return "abstract"
 
 # ---------------------------------------------------------
-# UTIL
+# COLOR THEMES & AUDIO-BASED COLOR MODULATION
 # ---------------------------------------------------------
+# RGB(0~1) 팔레트
+THEMES = {
+    "Pastel": [
+        (0.98, 0.80, 0.88),
+        (0.80, 0.88, 0.95),
+        (0.90, 0.95, 0.80),
+    ],
+    "Neon": [
+        (1.00, 0.20, 0.80),
+        (0.10, 1.00, 0.40),
+        (0.10, 0.80, 1.00),
+    ],
+    "Ink": [
+        (0.10, 0.10, 0.10),
+        (0.30, 0.30, 0.30),
+        (0.60, 0.60, 0.60),
+    ],
+    "Fire": [
+        (1.00, 0.40, 0.00),
+        (1.00, 0.70, 0.00),
+        (0.90, 0.10, 0.00),
+    ],
+    "Ocean": [
+        (0.20, 0.60, 1.00),
+        (0.00, 0.40, 0.80),
+        (0.50, 0.80, 1.00),
+    ],
+}
+
 def normalize(value, min_val, max_val):
     return float(np.clip((value - min_val) / (max_val - min_val + 1e-8), 0, 1))
 
@@ -51,34 +83,50 @@ def render_figure_to_bytes(fig):
     plt.close(fig)
     return buf
 
-# ---------------------------------------------------------
-# MULTI-COLOR (Amplitude → RGB)
-# ---------------------------------------------------------
-def get_color_from_amplitude(value):
+def apply_audio_color(base_rgb, amp_norm, features):
     """
-    Multi-color gradient:
-    Quiet → Blue → Cyan → Green → Yellow → Red → Loud
+    base_rgb: 테마에서 선택된 기본 색 (0~1 RGB)
+    amp_norm: 0~1 amplitude
+    features: 전체 오디오 특징 dict (rms, zcr, centroid, tempo, pitch_mean)
+    규칙:
+      - amplitude → lightness
+      - pitch_mean → hue shift
+      - rms_mean → saturation
+      - zcr_mean → hue jitter
     """
-    x = float(np.clip(value, 0, 1))
+    r, g, b = base_rgb
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
 
-    if x < 0.25:      # blue → cyan
-        r = 0
-        g = x * 4
-        b = 1
-    elif x < 0.5:     # cyan → green
-        r = 0
-        g = 1
-        b = 1 - (x - 0.25) * 4
-    elif x < 0.75:    # green → yellow
-        r = (x - 0.5) * 4
-        g = 1
-        b = 0
-    else:             # yellow → red
-        r = 1
-        g = 1 - (x - 0.75) * 4
-        b = 0
+    # 1) amplitude → 밝기 조정
+    l = np.clip(l + (amp_norm - 0.5) * 0.4, 0.0, 1.0)
 
-    return (float(r), float(g), float(b))
+    # 2) pitch → hue shift (높을수록 warm)
+    pitch = max(features.get("pitch_mean", 0.0), 0.0)
+    pitch_norm = np.clip(pitch / 600.0, 0.0, 1.0)
+    h = (h + (pitch_norm - 0.5) * 0.25) % 1.0
+
+    # 3) energy → saturation (rms)
+    energy = max(features.get("rms_mean", 0.0), 0.0)
+    energy_norm = np.clip(energy * 10.0, 0.0, 1.0)
+    s = np.clip(s + (energy_norm - 0.5) * 0.5, 0.0, 1.0)
+
+    # 4) zcr → hue jitter
+    zcr = max(features.get("zcr_mean", 0.0), 0.0)
+    zcr_factor = np.clip(zcr * 50.0, 0.0, 1.0)
+    h = (h + np.random.normal(0.0, zcr_factor * 0.02)) % 1.0
+
+    r2, g2, b2 = colorsys.hls_to_rgb(h, l, s)
+    return (float(r2), float(g2), float(b2))
+
+def get_color_from_audio(amp_norm, features, theme_name):
+    """
+    amp_norm(0~1)에 따라 테마 팔레트에서 기본 색을 하나 고르고,
+    그 위에 apply_audio_color로 오디오 특징 기반 변조.
+    """
+    palette = THEMES.get(theme_name, THEMES["Pastel"])
+    idx = min(int(amp_norm * len(palette)), len(palette) - 1)
+    base_rgb = palette[idx]
+    return apply_audio_color(base_rgb, amp_norm, features)
 
 # ---------------------------------------------------------
 # AUDIO ANALYSIS
@@ -107,7 +155,7 @@ def analyze_audio(file, target_points=1200):
             fmax=librosa.note_to_hz("C7"),
         )
         pitch_mean = float(np.nanmean(pitch_vals))
-    except:
+    except Exception:
         pitch_mean = 0.0
 
     features = {
@@ -120,13 +168,14 @@ def analyze_audio(file, target_points=1200):
     }
 
     return t, y_ds, features
+
 # ---------------------------------------------------------
 # DRAWING STYLE FUNCTIONS (Multi-Color + Theme Influence)
 # ---------------------------------------------------------
-def draw_line_art(t, y, features, complexity, thickness, seed, theme_influence):
+def draw_line_art(t, y, features, complexity, thickness, seed, theme_influence, color_theme):
     """
     여러 겹의 선으로 파형을 표현.
-    각 segment의 색은 amplitude(음량)에 따라 달라짐.
+    각 segment 색은 amplitude + 오디오 특징에 따라 달라짐.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -153,8 +202,8 @@ def draw_line_art(t, y, features, complexity, thickness, seed, theme_influence):
 
         # segment 단위로 색을 바꿔 그리기
         for j in range(len(t) - 1):
-            amp_norm = abs(amp[j])  # 0~1 사용
-            seg_color = get_color_from_amplitude(amp_norm)
+            amp_norm = abs(amp[j])  # 0~1
+            seg_color = get_color_from_audio(amp_norm, features, color_theme)
 
             ax.plot(
                 t[j:j+2],
@@ -167,10 +216,10 @@ def draw_line_art(t, y, features, complexity, thickness, seed, theme_influence):
     return render_figure_to_bytes(fig)
 
 
-def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_influence):
+def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_influence, color_theme):
     """
     여러 낙서(scribble) 레이어.
-    각 segment 색은 amplitude 기반으로 다르게 표시.
+    각 segment 색은 amplitude + 오디오 특징 기반으로 다르게 표시.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -202,7 +251,7 @@ def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_influen
 
         for j in range(len(t) - 1):
             amp_norm = abs(amp[j])
-            seg_color = get_color_from_amplitude(amp_norm)
+            seg_color = get_color_from_audio(amp_norm, features, color_theme)
 
             ax.plot(
                 t[j:j+2],
@@ -215,10 +264,10 @@ def draw_scribble_art(t, y, features, complexity, thickness, seed, theme_influen
     return render_figure_to_bytes(fig)
 
 
-def draw_contour_drawing(t, y, features, complexity, thickness, seed, theme_influence):
+def draw_contour_drawing(t, y, features, complexity, thickness, seed, theme_influence, color_theme):
     """
     polar contour 스타일.
-    윤곽선을 여러 겹 그리고, 각 segment 색을 amplitude 기반으로 변경.
+    윤곽선을 여러 겹 그리고, 각 segment 색을 amplitude + 오디오 특징 기반으로 변경.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -251,7 +300,7 @@ def draw_contour_drawing(t, y, features, complexity, thickness, seed, theme_infl
 
         for j in range(len(x) - 1):
             amp_norm = abs(amp[j])
-            seg_color = get_color_from_amplitude(amp_norm)
+            seg_color = get_color_from_audio(amp_norm, features, color_theme)
 
             ax.plot(
                 x[j:j+2],
@@ -264,10 +313,10 @@ def draw_contour_drawing(t, y, features, complexity, thickness, seed, theme_infl
     return render_figure_to_bytes(fig)
 
 
-def draw_charcoal_style(t, y, features, complexity, thickness, seed, theme_influence):
+def draw_charcoal_style(t, y, features, complexity, thickness, seed, theme_influence, color_theme):
     """
     짧은 스트로크들을 여러 번 겹치는 목탄/잉크 느낌.
-    스트로크 segment마다 amplitude 색 적용.
+    스트로크 segment마다 amplitude + 오디오 특징 색 적용.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -303,12 +352,11 @@ def draw_charcoal_style(t, y, features, complexity, thickness, seed, theme_influ
         alpha = 0.04 + 0.1 * np.random.rand()
         width = thickness * np.random.uniform(0.7, 1.5)
 
-        # 부분(segment)별로 다른 색
         amp_seg = amp[start:end]
 
         for j in range(len(x_seg) - 1):
             amp_norm = abs(amp_seg[j])
-            seg_color = get_color_from_amplitude(amp_norm)
+            seg_color = get_color_from_audio(amp_norm, features, color_theme)
 
             ax.plot(
                 x_seg[j:j+2],
@@ -319,7 +367,6 @@ def draw_charcoal_style(t, y, features, complexity, thickness, seed, theme_influ
             )
 
     return render_figure_to_bytes(fig)
-
 
 # ---------------------------------------------------------
 # SIDEBAR CONTROLS
@@ -335,8 +382,15 @@ complexity = st.sidebar.slider("Complexity", 1, 10, 5)
 thickness = st.sidebar.slider("Base Line Thickness", 1, 6, 2)
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
+# 🎨 Color Theme 선택
+color_theme = st.sidebar.selectbox(
+    "Color Theme",
+    ["Pastel", "Neon", "Ink", "Fire", "Ocean"],
+    index=0,
+)
+
 # ---------------------------------------------------------
-# THEME FROM API
+# THEME FROM API (Word → jitter/curve/density)
 # ---------------------------------------------------------
 st.sidebar.markdown("---")
 st.sidebar.header("Drawing Theme (via API)")
@@ -347,7 +401,7 @@ if st.sidebar.button("Get Random Theme"):
 theme = st.session_state.get("theme_word", None)
 
 if theme:
-    st.sidebar.success(f"🎨 Theme: **{theme}**")
+    st.sidebar.success(f"🎨 Theme word: **{theme}**")
 else:
     st.sidebar.info("No theme yet.")
 
@@ -365,7 +419,6 @@ if theme:
     elif theme in ["portrait", "face", "figure"]:
         theme_influence["density_mul"] = 0.8
         theme_influence["curve_strength"] = 1.1
-
 
 # ---------------------------------------------------------
 # MAIN UI
@@ -398,17 +451,17 @@ if uploaded_file:
     st.subheader("3️⃣ Generated Multi-Color Drawing")
 
     if drawing_style == "Line Art":
-        img_buf = draw_line_art(t, y_ds, feats, complexity, thickness, seed, theme_influence)
+        img_buf = draw_line_art(t, y_ds, feats, complexity, thickness, seed, theme_influence, color_theme)
     elif drawing_style == "Scribble Art":
-        img_buf = draw_scribble_art(t, y_ds, feats, complexity, thickness, seed, theme_influence)
+        img_buf = draw_scribble_art(t, y_ds, feats, complexity, thickness, seed, theme_influence, color_theme)
     elif drawing_style == "Contour Drawing":
-        img_buf = draw_contour_drawing(t, y_ds, feats, complexity, thickness, seed, theme_influence)
+        img_buf = draw_contour_drawing(t, y_ds, feats, complexity, thickness, seed, theme_influence, color_theme)
     else:
-        img_buf = draw_charcoal_style(t, y_ds, feats, complexity, thickness, seed, theme_influence)
+        img_buf = draw_charcoal_style(t, y_ds, feats, complexity, thickness, seed, theme_influence, color_theme)
 
     st.image(
         img_buf,
-        caption=f"{drawing_style} (Theme: {theme}) – multi-color amplitude mapping",
+        caption=f"{drawing_style} – Color Theme: {color_theme} (Word theme: {theme})",
         use_container_width=True,
     )
 

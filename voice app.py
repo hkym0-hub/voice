@@ -26,9 +26,9 @@ st.set_page_config(
 st.title("🎧 WaveSketch: Multi-Color Sound Drawings")
 st.write(
     "Upload a short **WAV or MP3** file. "
-    "Your voice becomes a generative multi-color drawing based on amplitude, pitch, energy, and rhythm."
+    "Your voice becomes a multi-color drawing based on amplitude, pitch, energy, and rhythm."
 )
-st.caption("⚠️ m4a는 서버 환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용해 주세요.")
+st.caption("⚠️ m4a는 서버 환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용하세요.")
 
 # ---------------------------------------------------------
 # Utility
@@ -47,35 +47,27 @@ def render_figure_to_bytes(fig):
 # Color Theme Base Palettes
 # ---------------------------------------------------------
 THEME_BASE = {
-    "Pastel":      (0.55, 0.45, 0.90),
-    "Neon":        (0.10, 0.95, 0.85),
-    "Ink":         (0.05, 0.05, 0.10),
-    "Fire":        (0.95, 0.40, 0.10),
-    "Ocean":       (0.10, 0.40, 0.80),
+    "Pastel": (0.55, 0.45, 0.90),
+    "Neon":   (0.10, 0.95, 0.85),
+    "Ink":    (0.05, 0.05, 0.10),
+    "Fire":   (0.95, 0.40, 0.10),
+    "Ocean":  (0.10, 0.40, 0.80),
 }
-
-def hsv_to_rgb_tuple(h, s, v):
-    r, g, b = colorsys.hsv_to_rgb(h, s, v)
-    return (float(r), float(g), float(b))
 
 # ---------------------------------------------------------
 # AUDIO ANALYSIS
 # ---------------------------------------------------------
 def analyze_audio(uploaded_file, target_points=1200):
-
     uploaded_file.seek(0)
     y, sr = librosa.load(uploaded_file, sr=None, mono=True)
 
-    # 10초 제한
     if len(y) > 10 * sr:
         y = y[:10 * sr]
 
-    # Downsample waveform for drawing
     idx = np.linspace(0, len(y)-1, target_points, dtype=int)
     y_ds = y[idx]
     t = np.linspace(0, 1, len(y_ds))
 
-    # Features
     rms = librosa.feature.rms(y=y)[0]
     zcr = librosa.feature.zero_crossing_rate(y=y)[0]
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
@@ -98,34 +90,53 @@ def analyze_audio(uploaded_file, target_points=1200):
 
     return t, y_ds, features
 
+
 # ---------------------------------------------------------
-# FULL COLOR ENGINE (예시 2 완전 적용)
+# 🌈 FULL COLOR ENGINE (모든 요구사항 반영)
+# amplitude + pitch + energy + ZCR + theme + amplitude-gradient blending
 # ---------------------------------------------------------
 def get_dynamic_color(amplitude, pitch, energy, zcr, theme_name):
-    
-    # 기본 테마 색 (RGB)
+
+    # 1) Theme Base RGB → HSV
     r0, g0, b0 = THEME_BASE[theme_name]
-    
-    # RGB → HSV 변환
     h, s, v = colorsys.rgb_to_hsv(r0, g0, b0)
 
-    # amplitude → lightness 변화
-    amp_norm = float(np.clip(abs(amplitude), 0, 1))
-    v = np.clip(v * (0.6 + amp_norm * 0.8), 0, 1)
+    # 2) amplitude → 밝기(v)
+    amp = np.clip(abs(amplitude), 0, 1)
+    v = np.clip(0.35 + amp * 0.65, 0, 1)
 
-    # pitch → hue shift
-    pitch_norm = np.clip(pitch / 700, 0, 1)
-    h = (h + pitch_norm * 0.25) % 1.0
+    # 3) pitch → hue shift
+    pitch_norm = np.clip((pitch - 80) / 600, 0, 1)
+    h = (h + pitch_norm * 0.30) % 1.0
 
-    # energy → saturation 조절
-    energy_norm = np.clip(energy * 12, 0, 1)
-    s = np.clip(s * (0.5 + energy_norm * 0.7), 0, 1)
+    # 4) energy(rms) → saturation
+    energy_norm = np.clip(energy * 35, 0, 1)
+    s = np.clip(0.25 + energy_norm * 0.75, 0, 1)
 
-    # ZCR → jitter (노이즈 색 변화)
-    jitter = (random.random() - 0.5) * (zcr * 0.3)
+    # 5) ZCR → jitter (색상 흔들림)
+    jitter = (random.random() - 0.5) * (zcr * 1.8)
     h = (h + jitter) % 1.0
 
-    return hsv_to_rgb_tuple(h, s, v)
+    # Theme HSV → RGB
+    theme_rgb = colorsys.hsv_to_rgb(h, s, v)
+
+    # 6) amplitude-gradient (파랑→빨강)
+    if amp < 0.25:
+        grad = (0, amp * 4, 1)
+    elif amp < 0.5:
+        grad = (0, 1, 1 - (amp - 0.25) * 4)
+    elif amp < 0.75:
+        grad = ((amp - 0.5) * 4, 1, 0)
+    else:
+        grad = (1, 1 - (amp - 0.75) * 4, 0)
+
+    # 7) theme + gradient blending
+    final_r = theme_rgb[0] * 0.55 + grad[0] * 0.45
+    final_g = theme_rgb[1] * 0.55 + grad[1] * 0.45
+    final_b = theme_rgb[2] * 0.55 + grad[2] * 0.45
+
+    return (final_r, final_g, final_b)
+
 
 # ---------------------------------------------------------
 # DRAWINGS
@@ -150,25 +161,12 @@ def draw_line_art(t, y, feats, complexity, thickness, seed, theme_name):
     for layer in range(n_layers):
         offset = (layer - (n_layers - 1)/2) * 0.03
         y_line = base_y + offset
-
         alpha = 0.35 - layer * 0.03
 
         for i in range(len(t)-1):
-            color = get_dynamic_color(
-                amplitude=amp[i],
-                pitch=pitch,
-                energy=energy,
-                zcr=zcr,
-                theme_name=theme_name
-            )
-
-            ax.plot(
-                t[i:i+2],
-                y_line[i:i+2],
-                color=color,
-                linewidth=thickness,
-                alpha=alpha,
-            )
+            color = get_dynamic_color(amp[i], pitch, energy, zcr, theme_name)
+            ax.plot(t[i:i+2], y_line[i:i+2], color=color,
+                    linewidth=thickness, alpha=alpha)
 
     return render_figure_to_bytes(fig)
 
@@ -199,23 +197,12 @@ def draw_scribble_art(t, y, feats, complexity, thickness, seed, theme_name):
         width = thickness * (0.5 + random.random())
 
         for i in range(len(t)-1):
-            color = get_dynamic_color(
-                amplitude=amp[i],
-                pitch=pitch,
-                energy=energy,
-                zcr=zcr,
-                theme_name=theme_name
-            )
-
-            ax.plot(
-                t[i:i+2],
-                y_line[i:i+2],
-                color=color,
-                linewidth=width,
-                alpha=alpha,
-            )
+            color = get_dynamic_color(amp[i], pitch, energy, zcr, theme_name)
+            ax.plot(t[i:i+2], y_line[i:i+2], color=color,
+                    linewidth=width, alpha=alpha)
 
     return render_figure_to_bytes(fig)
+
 
 # ---------------------------------------------------------
 # SIDEBAR
@@ -223,12 +210,8 @@ def draw_scribble_art(t, y, feats, complexity, thickness, seed, theme_name):
 st.sidebar.header("Drawing Controls")
 
 drawing_style = st.sidebar.selectbox("Drawing Style", ["Line Art", "Scribble Art"])
-
-theme_name = st.sidebar.selectbox(
-    "Color Theme",
-    ["Pastel", "Neon", "Ink", "Fire", "Ocean"]
-)
-
+theme_name = st.sidebar.selectbox("Color Theme",
+                                  ["Pastel", "Neon", "Ink", "Fire", "Ocean"])
 complexity = st.sidebar.slider("Complexity", 1, 10, 5)
 thickness = st.sidebar.slider("Line Thickness", 1, 6, 2)
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
@@ -246,7 +229,7 @@ uploaded_file = st.file_uploader(
 if uploaded_file:
     st.audio(uploaded_file)
 
-    with st.spinner("Analyzing audio features…"):
+    with st.spinner("Analyzing audio…"):
         try:
             t, y_ds, feats = analyze_audio(uploaded_file)
         except Exception as e:
@@ -264,7 +247,8 @@ if uploaded_file:
     else:
         img_buf = draw_scribble_art(t, y_ds, feats, complexity, thickness, seed, theme_name)
 
-    st.image(img_buf, caption=f"{drawing_style} with {theme_name} theme", use_container_width=True)
+    st.image(img_buf, caption=f"{drawing_style} with {theme_name} theme",
+             use_container_width=True)
 
     st.download_button(
         "📥 Download Image",
@@ -272,5 +256,6 @@ if uploaded_file:
         file_name="wavesketch.png",
         mime="image/png"
     )
+
 else:
     st.info("Please upload a WAV or MP3 file 🎵")

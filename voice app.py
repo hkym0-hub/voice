@@ -80,23 +80,36 @@ def analyze_audio(uploaded_file, target_points=1200):
 
 
 # ---------------------------------------------------------
-# COLOR ENGINE
+# COLOR ENGINE — UPDATED to match Color Interpretation Guide
 # ---------------------------------------------------------
 def get_dynamic_color(amplitude, pitch, energy, zcr):
+    # 1) Brightness (Value)
     amp = np.clip(abs(amplitude), 0, 1)
-    v = np.clip(0.2 + amp * 0.8, 0, 1)
+    v = 0.2 + amp * 0.8  # quiet → dark, loud → bright
 
-    if pitch <= 0:
-        pitch_norm = 0.0
+    # 2) Hue from pitch (Cool → Warm)
+    # Normalize pitch based on typical human voice (80–350 Hz)
+    pitch_norm = np.clip((pitch - 80) / 270, 0, 1)
+
+    # Map:
+    # low pitch → blue (0.6)
+    # mid pitch → green/yellow (0.3)
+    # high pitch → red (0.0)
+    if pitch_norm < 0.5:
+        h = 0.6 - pitch_norm * 0.6      # blue → green
     else:
-        pitch_norm = np.clip((pitch - 80) / 800, 0, 1)
-    h = pitch_norm * 0.9
+        h = 0.3 - (pitch_norm - 0.5) * 0.3  # yellow → red
 
-    energy_norm = np.clip(energy * 40, 0, 1)
-    s = np.clip(0.25 + energy_norm * 0.75, 0, 1)
+    h = h % 1.0
 
-    zcr_norm = np.clip(zcr * 8, 0, 1)
-    h = (h + (random.random() - 0.5) * 0.25 * zcr_norm) % 1.0
+    # 3) Saturation from RMS energy
+    # Expand vocal RMS into usable saturation range
+    energy_norm = np.clip(energy * 15, 0, 1)
+    s = 0.2 + energy_norm * 0.8  # low → pastel, high → vivid
+
+    # 4) Hue jitter from ZCR (noisy consonants)
+    zcr_norm = np.clip(zcr * 50, 0, 1)
+    h = (h + (random.random() - 0.5) * 0.2 * zcr_norm) % 1.0
 
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return (float(r), float(g), float(b))
@@ -266,8 +279,9 @@ def draw_spiral_bloom(t, y, feats, complexity, thickness, seed):
     return render_figure_to_bytes(fig)
 
 
+
 # ---------------------------------------------------------
-# SIDEBAR UI (Emotion Controls 삭제된 버전)
+# SIDEBAR UI
 # ---------------------------------------------------------
 st.sidebar.header("Drawing Controls")
 
@@ -280,7 +294,7 @@ complexity = st.sidebar.slider("Complexity", 1, 10, 5)
 thickness = st.sidebar.slider("Line / Stroke Thickness", 1, 6, 2)
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
-# --- API Key ---
+# API Key (optional)
 st.sidebar.header("API Settings (optional)")
 api_key = st.sidebar.text_input(
     "AssemblyAI API Key",
@@ -295,14 +309,12 @@ else:
 
 
 # ---------------------------------------------------------
-# Emotion Transparency Guide (UI 없이 설명만 유지)
+# Emotion Transparency Guide (UI는 제거됨, 설명만 유지)
 # ---------------------------------------------------------
 st.markdown("## 🫧 Emotion-Based Transparency Guide")
 st.markdown("""
-Each emotion influences the **transparency (alpha value)** of the strokes.
-
-Brighter emotions generate stronger and more vivid lines,  
-while heavier emotions create softer and more delicate impressions.
+Although the drawing currently does not apply emotional transparency,
+here is how emotion can be mapped to stroke opacity:
 
 ### Emotion → Alpha Range Mapping  
 - **joy**: *0.8–1.0* — bright and clearly defined  
@@ -311,9 +323,6 @@ while heavier emotions create softer and more delicate impressions.
 - **fear**: *0.3–0.6* — trembling, unstable presence  
 - **surprise**: *0.5–0.8* — sharp and striking  
 - **neutral**: *0.55–0.75* — balanced transparency  
-
-This transparency modulation adds emotional nuance to the artwork,  
-making each generated visual feel more expressive and alive.
 """)
 
 
@@ -369,7 +378,7 @@ else:
 
 
 # ---------------------------------------------------------
-# Color Guide
+# Color Interpretation Guide
 # ---------------------------------------------------------
 st.markdown("## 🎨 Color Interpretation Guide")
 st.markdown("""
@@ -378,13 +387,14 @@ st.markdown("""
 - Loud parts → brighter  
 
 ### 🌈 Hue (Cool → Warm)
-- Low pitch → blue/green  
-- High pitch → orange/pink  
+- Low pitch → blue  
+- Mid pitch → green/yellow  
+- High pitch → orange/red  
 
 ### 🎯 Saturation
 - High RMS → vivid colors  
-- Low RMS → soft colors  
+- Low RMS → soft pastel  
 
 ### 🌀 ZCR
-- More consonant/noisy speech → more hue flicker  
+- Noisy sections → color jitter  
 """)

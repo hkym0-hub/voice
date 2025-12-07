@@ -225,4 +225,3 @@ def draw_particle_drift(t, y, feats, complexity, thickness, seed, emotion_label,
         i = random.randint(0, len(amp)-1)
         x = t[i]; y_pos = 0.5 + amp[i] * 0.3
 
-이어서 출력해줘

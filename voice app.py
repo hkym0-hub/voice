@@ -396,35 +396,40 @@ else:
 st.markdown("## 🎨 Color Interpretation Guide")
 
 st.markdown("""
-### 🌗 어두운 색 vs 밝은 색 (Value)
-- **어두운 색** → 작은 amplitude (조용한 목소리, 속삭임, 긴장 낮은 구간)  
-- **밝은 색** → 큰 amplitude (크게 말할 때, 감정이 올라간 구간)  
+### 🌗 Dark vs Bright Colors (Value)
+- **Darker colors** → lower amplitude (quiet voice, whispering, calm moments)  
+- **Brighter colors** → higher amplitude (louder speech, emotional emphasis)  
 
 ---
 
-### 🌈 차가운 색 vs 따뜻한 색 (Hue)
-- **차가운 색 (파랑·청록 계열)** → 상대적으로 **낮은 pitch**  
-- **따뜻한 색 (노랑·주황·빨강·보라)** → **높은 pitch**, 고음·하이톤  
+### 🌈 Cool vs Warm Colors (Hue)
+- **Cool tones (blue / cyan / greenish)** → **lower pitch**  
+- **Warm tones (yellow / orange / red / magenta)** → **higher pitch**, such as high notes or expressive tone  
 
 ---
 
-### 🎯 선명한 색 vs 흐린 색 (Saturation)
-- **선명하고 쨍한 색** → **Energy(RMS)가 높은 구간**  
-  - 강한 발성, 힘이 실린 말, 감정이 격한 부분  
-- **흐릿하고 부드러운 색** → **Energy가 낮은 구간**  
-  - 힘을 빼고 말하는 부분, 차분한 톤  
+### 🎯 Vivid vs Soft Colors (Saturation)
+- **Vivid and saturated colors** → **higher energy (RMS)**  
+  - Strong vocal projection, emotional emphasis, powerful speech  
+- **Soft or muted colors** → **lower energy**  
+  - Calm speech, relaxed tone, gentle delivery  
 
 ---
 
-### 🌀 색이 자꾸 흔들리는 구간 (Jitter)
-- **색이 빠르게 바뀌거나 무지개처럼 튀는 구간** → **ZCR(Zero Crossing Rate)이 높은 부분**  
-  - 자음이 많이 섞인 발음, 숨소리, 잡음, 거친 소리들이 많을수록  
-  - 선의 색이 더 불규칙하게 떨리며 표현됩니다.  
+### 🌀 Color Flicker & Irregular Shifts (Jitter)
+- **Rapidly changing or flickering colors** → **high ZCR (Zero Crossing Rate)**  
+  - More consonant noise, breath sounds, friction, or harsher textures in the voice  
+  - Lines become visually unstable or noisy to reflect those textures  
 
-이렇게 한 장의 그림은  
-**“얼마나 크게 말했는지(amplitude)”**,  
-**“얼마나 높은 톤이었는지(pitch)”**,  
-**“얼마나 힘이 실렸는지(energy)”**,  
-**“얼마나 거칠게 발음했는지(ZCR)”**  
-를 동시에 색으로 시각화하고 있습니다.
+---
+
+### 🎤 What the Colors Represent Overall
+Each generated artwork visualizes your voice across four major dimensions:
+
+- **Amplitude** → How loud or soft your voice is  
+- **Pitch** → Whether your tone is low, mid, or high  
+- **Energy (RMS)** → How strong or expressive your vocal delivery is  
+- **ZCR** → How noisy, textured, or consonant-heavy your sounds are  
+
+Your drawing becomes a **colorful emotional fingerprint** of your voice.
 """)

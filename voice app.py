@@ -1,10 +1,5 @@
-# app.py
 # =========================================================
 # WaveSketch: Multi-Color Drawing from Sound Waves
-# - WAV / MP3 입력
-# - amplitude / pitch / energy / ZCR 기반 색상 변조
-# - Drawing Styles:
-#   Line Art / Scribble Art / Contour Wave / Particle Drift / Spiral Bloom
 # =========================================================
 
 import io
@@ -31,11 +26,13 @@ st.write(
 )
 st.caption("⚠️ m4a는 서버 환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용하세요.")
 
+
 # ---------------------------------------------------------
 # Utility
 # ---------------------------------------------------------
 def normalize(value, min_val, max_val):
     return float(np.clip((value - min_val) / (max_val - min_val + 1e-8), 0, 1))
+
 
 def render_figure_to_bytes(fig):
     buf = io.BytesIO()
@@ -44,29 +41,21 @@ def render_figure_to_bytes(fig):
     plt.close(fig)
     return buf
 
+
 # ---------------------------------------------------------
 # AUDIO ANALYSIS
 # ---------------------------------------------------------
 def analyze_audio(uploaded_file, target_points=1200):
-    """
-    - WAV/MP3 로드
-    - 최대 10초까지만 사용
-    - 드로잉용으로 waveform 다운샘플링
-    - RMS, ZCR, Spectral Centroid, Tempo, Pitch 추출
-    """
     uploaded_file.seek(0)
     y, sr = librosa.load(uploaded_file, sr=None, mono=True)
 
-    # 10초 제한
     if len(y) > 10 * sr:
         y = y[:10 * sr]
 
-    # Downsample waveform for drawing
     idx = np.linspace(0, len(y) - 1, target_points, dtype=int)
     y_ds = y[idx]
     t = np.linspace(0, 1, len(y_ds))
 
-    # Features (전체 신호 기준)
     rms = librosa.feature.rms(y=y)[0]
     zcr = librosa.feature.zero_crossing_rate(y=y)[0]
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
@@ -89,54 +78,41 @@ def analyze_audio(uploaded_file, target_points=1200):
 
     return t, y_ds, features
 
+
 # ---------------------------------------------------------
-# 🌈 FULL COLOR ENGINE (Theme 제거 버전)
-# amplitude / pitch / energy / ZCR 만으로 색 결정
+# COLOR ENGINE
 # ---------------------------------------------------------
 def get_dynamic_color(amplitude, pitch, energy, zcr):
-    """
-    amplitude → Value(밝기)
-    pitch → Hue(색상)
-    energy(RMS) → Saturation(채도)
-    ZCR → Hue jitter(색 흔들림, 노이즈)
-    """
-
-    # amplitude → 밝기 (V)
     amp = np.clip(abs(amplitude), 0, 1)
-    v = np.clip(0.2 + amp * 0.8, 0, 1)  # 조용할수록 어두운 톤, 클수록 밝아짐
+    v = np.clip(0.2 + amp * 0.8, 0, 1)
 
-    # pitch → hue (대략 저음: 차가운색, 고음: 따뜻한색/보라)
     if pitch <= 0:
         pitch_norm = 0.0
     else:
         pitch_norm = np.clip((pitch - 80) / 800, 0, 1)
-    h = pitch_norm * 0.9  # 0~0.9 범위로 전체 스펙트럼 거의 다 사용
+    h = pitch_norm * 0.9
 
-    # energy → saturation (E가 클수록 채도↑)
     energy_norm = np.clip(energy * 40, 0, 1)
     s = np.clip(0.25 + energy_norm * 0.75, 0, 1)
 
-    # ZCR → hue jitter (색상 흔들림: 자음/노이즈 많을수록 더 흔들림)
     zcr_norm = np.clip(zcr * 8, 0, 1)
     h = (h + (random.random() - 0.5) * 0.25 * zcr_norm) % 1.0
 
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return (float(r), float(g), float(b))
 
+
 # ---------------------------------------------------------
 # DRAWING STYLES
 # ---------------------------------------------------------
 def draw_line_art(t, y, feats, complexity, thickness, seed):
-    """
-    시간축을 따라 흐르는 여러 겹의 선.
-    """
     random.seed(seed)
     np.random.seed(seed)
 
     amp = y / (np.max(np.abs(y)) + 1e-8)
     base_y = 0.5 + amp * 0.35
-
     n_layers = 1 + complexity
+
     energy = feats["rms"]
     pitch = feats["pitch"]
     zcr = feats["zcr"]
@@ -153,21 +129,13 @@ def draw_line_art(t, y, feats, complexity, thickness, seed):
 
         for i in range(len(t) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
-            ax.plot(
-                t[i:i+2],
-                y_line[i:i+2],
-                color=color,
-                linewidth=thickness,
-                alpha=alpha,
-            )
+            ax.plot(t[i:i+2], y_line[i:i+2], color=color,
+                    linewidth=thickness, alpha=alpha)
 
     return render_figure_to_bytes(fig)
 
 
 def draw_scribble_art(t, y, feats, complexity, thickness, seed):
-    """
-    여러 겹의 낙서(scribble) 레이어를 겹쳐 그린 스타일.
-    """
     random.seed(seed)
     np.random.seed(seed)
 
@@ -194,21 +162,13 @@ def draw_scribble_art(t, y, feats, complexity, thickness, seed):
 
         for i in range(len(t) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
-            ax.plot(
-                t[i:i+2],
-                y_line[i:i+2],
-                color=color,
-                linewidth=width,
-                alpha=alpha,
-            )
+            ax.plot(t[i:i+2], y_line[i:i+2], color=color,
+                    linewidth=width, alpha=alpha)
 
     return render_figure_to_bytes(fig)
 
 
 def draw_contour_wave(t, y, feats, complexity, thickness, seed):
-    """
-    파형을 polar 좌표에 매핑해서 동심원/윤곽선처럼 그리는 스타일.
-    """
     random.seed(seed)
     np.random.seed(seed)
 
@@ -227,7 +187,6 @@ def draw_contour_wave(t, y, feats, complexity, thickness, seed):
 
     for layer in range(1, complexity + 3):
         offset = layer * 0.03
-
         r_line = base_r + amp * 0.25 + offset
         jitter = np.random.normal(scale=0.01 + zcr * 0.2, size=len(r_line))
         r_line = r_line + jitter
@@ -237,21 +196,13 @@ def draw_contour_wave(t, y, feats, complexity, thickness, seed):
 
         for i in range(len(x) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
-            ax.plot(
-                x[i:i+2],
-                y2[i:i+2],
-                color=color,
-                linewidth=thickness * 0.7,
-                alpha=0.7,
-            )
+            ax.plot(x[i:i+2], y2[i:i+2], color=color,
+                    linewidth=thickness * 0.7, alpha=0.7)
 
     return render_figure_to_bytes(fig)
 
 
 def draw_particle_drift(t, y, feats, complexity, thickness, seed):
-    """
-    각 샘플을 입자(점)로 생각해서, 소리의 흐름에 따라 흩날리는 점들을 찍는 스타일.
-    """
     random.seed(seed)
     np.random.seed(seed)
 
@@ -269,7 +220,6 @@ def draw_particle_drift(t, y, feats, complexity, thickness, seed):
 
     for _ in range(n_particles):
         i = random.randint(0, len(amp) - 1)
-
         x = t[i]
         y_pos = 0.5 + amp[i] * 0.3
 
@@ -285,9 +235,6 @@ def draw_particle_drift(t, y, feats, complexity, thickness, seed):
 
 
 def draw_spiral_bloom(t, y, feats, complexity, thickness, seed):
-    """
-    나선형으로 퍼져 나가는 꽃/은하 같은 이미지.
-    """
     random.seed(seed)
     np.random.seed(seed)
 
@@ -303,7 +250,7 @@ def draw_spiral_bloom(t, y, feats, complexity, thickness, seed):
 
     turns = 3 + complexity * 0.7
     angles = np.linspace(0, turns * 2 * np.pi, len(amp))
-    radius = (0.1 + amp * 0.5)
+    radius = 0.1 + amp * 0.5
 
     jitter = np.random.normal(scale=0.02 + zcr * 0.1, size=len(radius))
     radius = radius + jitter
@@ -313,39 +260,54 @@ def draw_spiral_bloom(t, y, feats, complexity, thickness, seed):
 
     for i in range(len(x) - 1):
         color = get_dynamic_color(amp[i], pitch, energy, zcr)
-        ax.plot(
-            x[i:i+2],
-            y2[i:i+2],
-            color=color,
-            linewidth=thickness * 0.9,
-            alpha=0.8,
-        )
+        ax.plot(x[i:i+2], y2[i:i+2], color=color,
+                linewidth=thickness * 0.9, alpha=0.8)
 
     return render_figure_to_bytes(fig)
 
+
 # ---------------------------------------------------------
-# SIDEBAR
+# SIDEBAR (중복 제거한 최종 버전)
 # ---------------------------------------------------------
 st.sidebar.header("Drawing Controls")
 
 drawing_style = st.sidebar.selectbox(
     "Drawing Style",
-    ["Line Art", "Scribble Art", "Contour Wave", "Particle Drift", "Spiral Bloom"],
+    ["Line Art", "Scribble Art", "Contour Wave", "Particle Drift", "Spiral Bloom"]
 )
 
 complexity = st.sidebar.slider("Complexity", 1, 10, 5)
 thickness = st.sidebar.slider("Line / Stroke Thickness", 1, 6, 2)
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
+# --- API Key ---
+st.sidebar.header("API Settings (optional)")
+api_key = st.sidebar.text_input(
+    "AssemblyAI API Key",
+    placeholder="Enter your AssemblyAI API key...",
+    type="password"
+)
+
+if api_key:
+    st.sidebar.success("API Key registered ✔")
+else:
+    st.sidebar.info("API Key not set (emotion auto-detection disabled)")
+
+# --- Emotion ---
+st.sidebar.header("Emotion Controls")
+emotion_label = st.sidebar.selectbox(
+    "Emotion",
+    ["neutral", "joy", "sadness", "anger", "fear", "surprise"]
+)
+emotion_conf = st.sidebar.slider("Emotion Confidence", 0.0, 1.0, 0.7)
+
+
 # ---------------------------------------------------------
 # MAIN UI
 # ---------------------------------------------------------
 st.subheader("1️⃣ Upload Audio")
 
-uploaded_file = st.file_uploader(
-    "Upload WAV or MP3",
-    type=["wav", "mp3"]
-)
+uploaded_file = st.file_uploader("Upload WAV or MP3", type=["wav", "mp3"])
 
 if uploaded_file:
     st.audio(uploaded_file)
@@ -371,13 +333,13 @@ if uploaded_file:
         img_buf = draw_contour_wave(t, y_ds, feats, complexity, thickness, seed)
     elif drawing_style == "Particle Drift":
         img_buf = draw_particle_drift(t, y_ds, feats, complexity, thickness, seed)
-    else:  # Spiral Bloom
+    else:
         img_buf = draw_spiral_bloom(t, y_ds, feats, complexity, thickness, seed)
 
     st.image(
         img_buf,
         caption=f"{drawing_style} – audio-driven multi-color drawing",
-        use_container_width=True,
+        use_container_width=True
     )
 
     st.download_button(
@@ -390,85 +352,24 @@ if uploaded_file:
 else:
     st.info("Please upload a WAV or MP3 file 🎵")
 
+
 # ---------------------------------------------------------
-# 🎨 Color Interpretation Guide (새 컬러 엔진용 설명)
+# Color Guide
 # ---------------------------------------------------------
 st.markdown("## 🎨 Color Interpretation Guide")
-
 st.markdown("""
-### 🌗 Dark vs Bright Colors (Value)
-- **Darker colors** → lower amplitude (quiet voice, whispering, calm moments)  
-- **Brighter colors** → higher amplitude (louder speech, emotional emphasis)  
+### 🌗 Dark vs Bright Colors
+- Quiet parts → darker  
+- Loud parts → brighter  
 
----
+### 🌈 Hue (Cool → Warm)
+- Low pitch → blue/green  
+- High pitch → orange/pink  
 
-### 🌈 Cool vs Warm Colors (Hue)
-- **Cool tones (blue / cyan / greenish)** → **lower pitch**  
-- **Warm tones (yellow / orange / red / magenta)** → **higher pitch**, such as high notes or expressive tone  
+### 🎯 Saturation
+- High RMS → vivid colors  
+- Low RMS → soft colors  
 
----
-
-### 🎯 Vivid vs Soft Colors (Saturation)
-- **Vivid and saturated colors** → **higher energy (RMS)**  
-  - Strong vocal projection, emotional emphasis, powerful speech  
-- **Soft or muted colors** → **lower energy**  
-  - Calm speech, relaxed tone, gentle delivery  
-
----
-
-### 🌀 Color Flicker & Irregular Shifts (Jitter)
-- **Rapidly changing or flickering colors** → **high ZCR (Zero Crossing Rate)**  
-  - More consonant noise, breath sounds, friction, or harsher textures in the voice  
-  - Lines become visually unstable or noisy to reflect those textures  
-
----
-
-### 🎤 What the Colors Represent Overall
-Each generated artwork visualizes your voice across four major dimensions:
-
-- **Amplitude** → How loud or soft your voice is  
-- **Pitch** → Whether your tone is low, mid, or high  
-- **Energy (RMS)** → How strong or expressive your vocal delivery is  
-- **ZCR** → How noisy, textured, or consonant-heavy your sounds are  
-
-Your drawing becomes a **colorful emotional fingerprint** of your voice.
+### 🌀 ZCR
+- More consonant/noisy speech → more hue flicker  
 """)
-
-# ---------------------------------------------------------
-# SIDEBAR UI
-# ---------------------------------------------------------
-st.sidebar.header("Drawing Controls")
-
-drawing_style = st.sidebar.selectbox(
-    "Drawing Style",
-    ["Line Art", "Scribble Art", "Contour Wave", "Particle Drift", "Spiral Bloom"]
-)
-
-complexity = st.sidebar.slider("Complexity", 1, 10, 5)
-thickness = st.sidebar.slider("Line / Stroke Thickness", 1, 8, 3)
-seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
-
-# ---------------------------------------------------------
-# 🔑 API KEY INPUT (추가된 부분)
-# ---------------------------------------------------------
-st.sidebar.header("API Settings (optional)")
-api_key = st.sidebar.text_input(
-    "AssemblyAI API Key",
-    type="password",
-    placeholder="Enter your AssemblyAI API key..."
-)
-
-if api_key:
-    st.sidebar.success("API Key registered ✔")
-else:
-    st.sidebar.info("API Key not set (emotion auto-detection disabled)")
-
-# ---------------------------------------------------------
-# Emotion Controls
-# ---------------------------------------------------------
-st.sidebar.header("Emotion Controls")
-emotion_label = st.sidebar.selectbox(
-    "Emotion",
-    ["neutral", "joy", "sadness", "anger", "fear", "surprise"]
-)
-emotion_conf = st.sidebar.slider("Emotion Confidence", 0.0, 1.0, 0.7)

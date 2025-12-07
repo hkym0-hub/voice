@@ -259,6 +259,113 @@ else:
     st.info("Please upload a WAV or MP3 file 🎵")
 
 # ---------------------------------------------------------
+# 🎨 Art Style
+# ---------------------------------------------------------
+def draw_contour_wave(t, y, feats, complexity, thickness, seed, theme_name)
+def draw_particle_drift(t, y, feats, complexity, thickness, seed, theme_name)
+def draw_spiral_bloom(t, y, feats, complexity, thickness, seed, theme_name)
+
+def draw_contour_wave(t, y, feats, complexity, thickness, seed, theme_name):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    amp = y / (np.max(np.abs(y)) + 1e-8)
+    energy = feats["rms"]
+    pitch = feats["pitch"]
+    zcr = feats["zcr"]
+
+    fig, ax = plt.subplots(figsize=(6, 8))
+    ax.axis("off")
+    ax.set_xlim(-1, 1)
+    ax.set_ylim(-1, 1)
+
+    base_r = 0.3 + energy * 0.5
+    angles = np.linspace(0, 2 * np.pi, len(amp))
+
+    for layer in range(1, complexity + 3):
+        offset = layer * 0.03
+
+        r_line = base_r + amp * 0.25 + offset
+        jitter = np.random.normal(scale=0.01 + zcr * 0.2, size=len(r_line))
+        r_line = r_line + jitter
+
+        x = r_line * np.cos(angles)
+        y2 = r_line * np.sin(angles)
+
+        for i in range(len(x)-1):
+            color = get_dynamic_color(amp[i], pitch, energy, zcr, theme_name)
+            ax.plot(x[i:i+2], y2[i:i+2], color=color,
+                    linewidth=thickness * 0.7, alpha=0.7)
+
+    return render_figure_to_bytes(fig)
+
+def draw_particle_drift(t, y, feats, complexity, thickness, seed, theme_name):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    amp = y / (np.max(np.abs(y)) + 1e-8)
+    energy = feats["rms"]
+    pitch = feats["pitch"]
+    zcr = feats["zcr"]
+
+    fig, ax = plt.subplots(figsize=(6, 8))
+    ax.axis("off")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    n_particles = 150 * complexity
+
+    for _ in range(n_particles):
+        i = random.randint(0, len(amp) - 1)
+
+        x = t[i]
+        y_pos = 0.5 + amp[i] * 0.3
+
+        drift_x = x + np.random.normal(scale=0.02 + zcr * 0.1)
+        drift_y = y_pos + np.random.normal(scale=0.02 + energy * 0.1)
+
+        size = thickness * np.random.uniform(0.3, 1.2)
+
+        color = get_dynamic_color(amp[i], pitch, energy, zcr, theme_name)
+
+        ax.scatter(drift_x, drift_y, color=color, s=size * 8, alpha=0.7)
+
+    return render_figure_to_bytes(fig)
+
+def draw_spiral_bloom(t, y, feats, complexity, thickness, seed, theme_name):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    amp = y / (np.max(np.abs(y)) + 1e-8)
+    energy = feats["rms"]
+    pitch = feats["pitch"]
+    zcr = feats["zcr"]
+
+    fig, ax = plt.subplots(figsize=(6, 8))
+    ax.axis("off")
+    ax.set_xlim(-1, 1)
+    ax.set_ylim(-1, 1)
+
+    turns = 3 + complexity * 0.7
+    angles = np.linspace(0, turns * 2 * np.pi, len(amp))
+    radius = (0.1 + amp * 0.5)
+
+    jitter = np.random.normal(scale=0.02 + zcr * 0.1, size=len(radius))
+    radius = radius + jitter
+
+    x = radius * np.cos(angles)
+    y2 = radius * np.sin(angles)
+
+    for i in range(len(x)-1):
+        color = get_dynamic_color(amp[i], pitch, energy, zcr, theme_name)
+        ax.plot(x[i:i+2], y2[i:i+2], color=color,
+                linewidth=thickness * 0.9, alpha=0.8)
+
+    return render_figure_to_bytes(fig)
+
+
+
+# ---------------------------------------------------------
 # 🎨 Color Interpretation Guide (추가된 부분)
 # ---------------------------------------------------------
 st.markdown("## 🎨 Color Interpretation Guide")

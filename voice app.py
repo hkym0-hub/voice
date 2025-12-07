@@ -24,8 +24,7 @@ st.write(
     "Upload a short **WAV or MP3** file. "
     "Your voice becomes a multi-color drawing based on **amplitude, pitch, energy, and rhythm (ZCR)**."
 )
-st.caption("⚠️ m4a는 서버 환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용하세요.")
-
+st.caption("⚠️ m4a는 서버환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용하세요.")
 
 
 # ---------------------------------------------------------
@@ -42,10 +41,9 @@ def get_emotion_thickness_multiplier(emotion):
     }
     return table.get(emotion, 1.0)
 
-# 기본 감정값 (UI 삭제됨)
+# 기본 감정 (UI 제거됨 → 필요시 변경 가능)
 emotion_label = "neutral"
 emotion_mul = get_emotion_thickness_multiplier(emotion_label)
-
 
 
 # ---------------------------------------------------------
@@ -156,8 +154,10 @@ def draw_line_art(t, y, feats, complexity, seed, emotion_mul):
         for i in range(len(t) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
             ax.plot(
-                t[i:i+2], y_line[i:i+2], color=color,
-                linewidth=1.5 * emotion_mul,     # 🔥 감정 기반 굵기
+                t[i:i+2],
+                y_line[i:i+2],
+                color=color,
+                linewidth=1.5 * emotion_mul,   # 🔥 감정 굵기 적용
                 alpha=alpha
             )
 
@@ -193,8 +193,10 @@ def draw_scribble_art(t, y, feats, complexity, seed, emotion_mul):
         for i in range(len(t) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
             ax.plot(
-                t[i:i+2], y_line[i:i+2], color=color,
-                linewidth=base_width * emotion_mul,     # 🔥 적용
+                t[i:i+2],
+                y_line[i:i+2],
+                color=color,
+                linewidth=base_width * emotion_mul,   # 🔥 적용
                 alpha=alpha
             )
 
@@ -231,8 +233,10 @@ def draw_contour_wave(t, y, feats, complexity, seed, emotion_mul):
         for i in range(len(x) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
             ax.plot(
-                x[i:i+2], y2[i:i+2], color=color,
-                linewidth=1.2 * emotion_mul,     # 🔥 적용
+                x[i:i+2],
+                y2[i:i+2],
+                color=color,
+                linewidth=1.2 * emotion_mul,   # 🔥 적용
                 alpha=0.7
             )
 
@@ -264,7 +268,7 @@ def draw_particle_drift(t, y, feats, complexity, seed, emotion_mul):
         drift_x = x + np.random.normal(scale=0.02 + zcr * 0.1)
         drift_y = y_pos + np.random.normal(scale=0.02 + energy * 0.1)
 
-        size = (5 + random.random() * 10) * emotion_mul   # 🔥 점 크기에도 감정 적용
+        size = (6 + random.random() * 10) * emotion_mul   # 🔥 점 크기에도 반영
         color = get_dynamic_color(amp[i], pitch, energy, zcr)
 
         ax.scatter(drift_x, drift_y, color=color, s=size, alpha=0.7)
@@ -300,8 +304,10 @@ def draw_spiral_bloom(t, y, feats, complexity, seed, emotion_mul):
     for i in range(len(x) - 1):
         color = get_dynamic_color(amp[i], pitch, energy, zcr)
         ax.plot(
-            x[i:i+2], y2[i:i+2], color=color,
-            linewidth=1.4 * emotion_mul,     # 🔥 적용
+            x[i:i+2],
+            y2[i:i+2],
+            color=color,
+            linewidth=1.4 * emotion_mul,   # 🔥 반영
             alpha=0.8
         )
 
@@ -310,7 +316,7 @@ def draw_spiral_bloom(t, y, feats, complexity, seed, emotion_mul):
 
 
 # ---------------------------------------------------------
-# SIDEBAR UI
+# SIDEBAR UI (Thickness 제거됨)
 # ---------------------------------------------------------
 st.sidebar.header("Drawing Controls")
 
@@ -320,9 +326,9 @@ drawing_style = st.sidebar.selectbox(
 )
 
 complexity = st.sidebar.slider("Complexity", 1, 10, 5)
-seed = st.sidebar.slider("Random Seed", 0, 9999, 42)   # thickness slider 삭제됨
+seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
-# API Key
+# API Key (optional)
 st.sidebar.header("API Settings (optional)")
 api_key = st.sidebar.text_input(
     "AssemblyAI API Key",
@@ -335,6 +341,26 @@ if api_key:
 else:
     st.sidebar.info("API Key not set (emotion auto-detection disabled)")
 
+
+
+# ---------------------------------------------------------
+# Emotion-Based Line Thickness Guide
+# ---------------------------------------------------------
+st.markdown("## 🧵 Emotion-Based Line Thickness Guide")
+st.markdown("""
+Each emotion influences the **thickness of the lines** in the artwork.
+
+### Emotion → Thickness Mapping  
+- **joy** → thicker lines (1.6×)  
+- **anger** → very thick, heavy lines (1.8×)  
+- **surprise** → slightly thicker lines (1.3×)  
+- **neutral** → standard thickness (1.0×)  
+- **fear** → thinner, weaker lines (0.7×)  
+- **sadness** → the thinnest and most delicate lines (0.5×)  
+
+This allows emotions to shape the *physical weight* of the drawing,
+making expressive voices bold and powerful, while quiet emotions remain soft and subtle.
+""")
 
 
 # ---------------------------------------------------------
@@ -351,7 +377,7 @@ if uploaded_file:
         try:
             t, y_ds, feats = analyze_audio(uploaded_file)
         except Exception as e:
-            st.error("Audio loading failed. Use WAV or MP3.")
+            st.error("Audio loading failed.")
             st.code(str(e))
             st.stop()
 

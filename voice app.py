@@ -433,3 +433,4 @@ Each generated artwork visualizes your voice across four major dimensions:
 
 Your drawing becomes a **colorful emotional fingerprint** of your voice.
 """)
+

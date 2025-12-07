@@ -51,7 +51,6 @@ def render_figure_to_bytes(fig):
     plt.close(fig)
     return buf
 
-
 # ---------------------------------------------------------
 # AUDIO ANALYSIS
 # ---------------------------------------------------------
@@ -59,7 +58,6 @@ def analyze_audio(uploaded_file, target_points=1400):
     uploaded_file.seek(0)
     y, sr = librosa.load(uploaded_file, sr=None, mono=True)
 
-    # 10초 이상이면 자르기
     if len(y) > 10 * sr:
         y = y[:10 * sr]
 
@@ -86,29 +84,22 @@ def analyze_audio(uploaded_file, target_points=1400):
 
     return t, y_ds, features
 
-
 # ---------------------------------------------------------
 # COLOR ENGINE → Audio controls color
 # ---------------------------------------------------------
 def get_audio_color(amplitude, pitch, rms, zcr):
     amp = np.clip(abs(amplitude), 0, 1)
 
-    # Brightness = amplitude
     v = 0.3 + amp * 0.7
-
-    # Hue = pitch (low→blue, high→red)
     pitch_norm = np.clip((pitch - 80) / 500, 0, 1)
-    h = (0.65 - 0.65 * pitch_norm) % 1.0  # blue→green→yellow→red
+    h = (0.65 - 0.65 * pitch_norm) % 1.0
 
-    # Saturation = RMS
     s = np.clip(rms * 12, 0.25, 1.0)
 
-    # Noise jitter = ZCR
     h = (h + (random.random() - 0.5) * zcr * 0.2) % 1.0
 
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return (float(r), float(g), float(b))
-
 
 # ---------------------------------------------------------
 # Draw Style – Only Line Art (Stable)
@@ -140,7 +131,6 @@ def draw_line_style(t, y, feats, seed, emotion_mul):
 
     return render_figure_to_bytes(fig)
 
-
 # ---------------------------------------------------------
 # SIDEBAR UI
 # ---------------------------------------------------------
@@ -154,7 +144,6 @@ emotion_mul = get_emotion_thickness_multiplier(emotion_label)
 
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
-# API key (optional)
 st.sidebar.header("AssemblyAI API (Optional)")
 api_key = st.sidebar.text_input(
     "Enter API Key…",
@@ -193,6 +182,14 @@ st.image(
     img_buf,
     caption=f"Emotion: {emotion_label} / Audio-Based Colors",
     use_container_width=True
+)
+
+# ⭐⭐ NEW: DOWNLOAD BUTTON ⭐⭐
+st.download_button(
+    label="⬇️ Download Image",
+    data=img_buf,
+    file_name="WaveSketch.png",
+    mime="image/png"
 )
 
 # ---------------------------------------------------------

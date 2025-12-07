@@ -267,7 +267,7 @@ def draw_spiral_bloom(t, y, feats, complexity, thickness, seed):
 
 
 # ---------------------------------------------------------
-# SIDEBAR (중복 제거한 최종 버전)
+# SIDEBAR UI (Emotion Controls 삭제된 버전)
 # ---------------------------------------------------------
 st.sidebar.header("Drawing Controls")
 
@@ -293,17 +293,9 @@ if api_key:
 else:
     st.sidebar.info("API Key not set (emotion auto-detection disabled)")
 
-# --- Emotion ---
-st.sidebar.header("Emotion Controls")
-emotion_label = st.sidebar.selectbox(
-    "Emotion",
-    ["neutral", "joy", "sadness", "anger", "fear", "surprise"]
-)
-emotion_conf = st.sidebar.slider("Emotion Confidence", 0.0, 1.0, 0.7)
-
 
 # ---------------------------------------------------------
-# Emotion Transparency Guide (삽입된 설명)
+# Emotion Transparency Guide (UI 없이 설명만 유지)
 # ---------------------------------------------------------
 st.markdown("## 🫧 Emotion-Based Transparency Guide")
 st.markdown("""

@@ -259,3 +259,39 @@ if uploaded_file:
 
 else:
     st.info("Please upload a WAV or MP3 file 🎵")
+
+
+st.markdown("## 🎨 Color Interpretation Guide")
+
+st.markdown("""
+### 🔵 차가운·어두운 색 (Blue / Cyan)
+**→ 낮은 Amplitude (작은 음량, 조용한 발성)**  
+속삭이거나 안정된 소리 구간을 의미합니다.  
+
+---
+
+### 🟢 초록 계열
+**→ 중간 Amplitude + 안정된 Pitch**  
+자연스러운 말하기 톤, 감정 변화가 적은 구간입니다.  
+
+---
+
+### 🟡🟠🔴 밝고 따뜻한 색 (Yellow / Orange / Red)
+**→ 높은 Amplitude + 강한 Energy(RMS)**  
+강하게 말하거나 감정이 실린 구간,  
+고음이나 강세가 들어간 구간을 나타냅니다.  
+
+---
+
+### 💜 보라 / 💗 핑크 색조 변화
+**→ Pitch(음높이)가 높아졌음을 의미**  
+고음으로 갈수록 Hue가 보라·핑크 계열로 이동합니다.  
+
+---
+
+### 🌀 색의 흔들림(Jitter)·불규칙한 변화
+**→ ZCR(Zero Crossing Rate, 거칠기)**  
+자음 비율이 높거나 잡음이 많은 음성을 표현합니다.  
+발음의 거칠기, 숨소리, 속삭임 등에서 색이 흔들립니다.  
+""")
+

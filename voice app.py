@@ -19,6 +19,7 @@ st.set_page_config(
     layout="wide"
 )
 
+# ----------------------- (1) 안내 텍스트 -----------------------
 st.title("🎧 WaveSketch: Multi-Color Sound Drawings")
 st.write(
     "Upload a short **WAV or MP3** file. "
@@ -41,18 +42,13 @@ def get_emotion_thickness_multiplier(emotion):
     }
     return table.get(emotion, 1.0)
 
-# 기본 감정 (UI 제거됨 → 필요시 변경 가능)
-emotion_label = "neutral"
+emotion_label = "neutral"  # 기본값
 emotion_mul = get_emotion_thickness_multiplier(emotion_label)
 
 
 # ---------------------------------------------------------
 # Utility
 # ---------------------------------------------------------
-def normalize(value, min_val, max_val):
-    return float(np.clip((value - min_val) / (max_val - min_val + 1e-8), 0, 1))
-
-
 def render_figure_to_bytes(fig):
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
@@ -98,13 +94,12 @@ def analyze_audio(uploaded_file, target_points=1200):
     return t, y_ds, features
 
 
-
 # ---------------------------------------------------------
 # COLOR ENGINE
 # ---------------------------------------------------------
 def get_dynamic_color(amplitude, pitch, energy, zcr):
     amp = np.clip(abs(amplitude), 0, 1)
-    v = 0.2 + amp * 0.8
+    v = 0.2 + amp * 0.8  # brightness
 
     pitch_norm = np.clip((pitch - 80) / 270, 0, 1)
 
@@ -125,9 +120,8 @@ def get_dynamic_color(amplitude, pitch, energy, zcr):
     return (float(r), float(g), float(b))
 
 
-
 # ---------------------------------------------------------
-# DRAWING STYLES (emotion_mul 적용됨)
+# DRAWING STYLES (emotion 적용)
 # ---------------------------------------------------------
 def draw_line_art(t, y, feats, complexity, seed, emotion_mul):
     random.seed(seed)
@@ -137,9 +131,7 @@ def draw_line_art(t, y, feats, complexity, seed, emotion_mul):
     base_y = 0.5 + amp * 0.35
     n_layers = 1 + complexity
 
-    energy = feats["rms"]
-    pitch = feats["pitch"]
-    zcr = feats["zcr"]
+    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
 
     fig, ax = plt.subplots(figsize=(6, 8))
     ax.axis("off")
@@ -154,15 +146,13 @@ def draw_line_art(t, y, feats, complexity, seed, emotion_mul):
         for i in range(len(t) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
             ax.plot(
-                t[i:i+2],
-                y_line[i:i+2],
+                t[i:i+2], y_line[i:i+2],
                 color=color,
-                linewidth=1.5 * emotion_mul,   # 🔥 감정 굵기 적용
+                linewidth=1.5 * emotion_mul,
                 alpha=alpha
             )
 
     return render_figure_to_bytes(fig)
-
 
 
 def draw_scribble_art(t, y, feats, complexity, seed, emotion_mul):
@@ -171,37 +161,29 @@ def draw_scribble_art(t, y, feats, complexity, seed, emotion_mul):
 
     amp = y / (np.max(np.abs(y)) + 1e-8)
     base_y = 0.5 + amp * 0.25
-
-    energy = feats["rms"]
-    pitch = feats["pitch"]
-    zcr = feats["zcr"]
+    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
 
     n_paths = 5 + complexity * 3
 
     fig, ax = plt.subplots(figsize=(6, 8))
     ax.axis("off")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
 
     for _ in range(n_paths):
         jitter = np.random.normal(scale=0.02 + energy * 0.05, size=len(base_y))
         y_line = base_y + jitter
-
         alpha = 0.05 + random.random() * 0.10
         base_width = 0.8 + random.random() * 1.5
 
         for i in range(len(t) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
             ax.plot(
-                t[i:i+2],
-                y_line[i:i+2],
+                t[i:i+2], y_line[i:i+2],
                 color=color,
-                linewidth=base_width * emotion_mul,   # 🔥 적용
+                linewidth=base_width * emotion_mul,
                 alpha=alpha
             )
 
     return render_figure_to_bytes(fig)
-
 
 
 def draw_contour_wave(t, y, feats, complexity, seed, emotion_mul):
@@ -209,9 +191,7 @@ def draw_contour_wave(t, y, feats, complexity, seed, emotion_mul):
     np.random.seed(seed)
 
     amp = y / (np.max(np.abs(y)) + 1e-8)
-    energy = feats["rms"]
-    pitch = feats["pitch"]
-    zcr = feats["zcr"]
+    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
 
     fig, ax = plt.subplots(figsize=(6, 8))
     ax.axis("off")
@@ -233,15 +213,13 @@ def draw_contour_wave(t, y, feats, complexity, seed, emotion_mul):
         for i in range(len(x) - 1):
             color = get_dynamic_color(amp[i], pitch, energy, zcr)
             ax.plot(
-                x[i:i+2],
-                y2[i:i+2],
+                x[i:i+2], y2[i:i+2],
                 color=color,
-                linewidth=1.2 * emotion_mul,   # 🔥 적용
+                linewidth=1.2 * emotion_mul,
                 alpha=0.7
             )
 
     return render_figure_to_bytes(fig)
-
 
 
 def draw_particle_drift(t, y, feats, complexity, seed, emotion_mul):
@@ -249,14 +227,10 @@ def draw_particle_drift(t, y, feats, complexity, seed, emotion_mul):
     np.random.seed(seed)
 
     amp = y / (np.max(np.abs(y)) + 1e-8)
-    energy = feats["rms"]
-    pitch = feats["pitch"]
-    zcr = feats["zcr"]
+    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
 
     fig, ax = plt.subplots(figsize=(6, 8))
     ax.axis("off")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
 
     n_particles = 150 * complexity
 
@@ -268,7 +242,7 @@ def draw_particle_drift(t, y, feats, complexity, seed, emotion_mul):
         drift_x = x + np.random.normal(scale=0.02 + zcr * 0.1)
         drift_y = y_pos + np.random.normal(scale=0.02 + energy * 0.1)
 
-        size = (6 + random.random() * 10) * emotion_mul   # 🔥 점 크기에도 반영
+        size = (6 + random.random() * 10) * emotion_mul
         color = get_dynamic_color(amp[i], pitch, energy, zcr)
 
         ax.scatter(drift_x, drift_y, color=color, s=size, alpha=0.7)
@@ -276,15 +250,12 @@ def draw_particle_drift(t, y, feats, complexity, seed, emotion_mul):
     return render_figure_to_bytes(fig)
 
 
-
 def draw_spiral_bloom(t, y, feats, complexity, seed, emotion_mul):
     random.seed(seed)
     np.random.seed(seed)
 
     amp = y / (np.max(np.abs(y)) + 1e-8)
-    energy = feats["rms"]
-    pitch = feats["pitch"]
-    zcr = feats["zcr"]
+    energy, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
 
     fig, ax = plt.subplots(figsize=(6, 8))
     ax.axis("off")
@@ -293,10 +264,7 @@ def draw_spiral_bloom(t, y, feats, complexity, seed, emotion_mul):
 
     turns = 3 + complexity * 0.7
     angles = np.linspace(0, turns * 2 * np.pi, len(amp))
-    radius = 0.1 + amp * 0.5
-
-    jitter = np.random.normal(scale=0.02 + zcr * 0.1, size=len(radius))
-    radius = radius + jitter
+    radius = 0.1 + amp * 0.5 + np.random.normal(scale=0.02, size=len(amp))
 
     x = radius * np.cos(angles)
     y2 = radius * np.sin(angles)
@@ -304,10 +272,9 @@ def draw_spiral_bloom(t, y, feats, complexity, seed, emotion_mul):
     for i in range(len(x) - 1):
         color = get_dynamic_color(amp[i], pitch, energy, zcr)
         ax.plot(
-            x[i:i+2],
-            y2[i:i+2],
+            x[i:i+2], y2[i:i+2],
             color=color,
-            linewidth=1.4 * emotion_mul,   # 🔥 반영
+            linewidth=1.4 * emotion_mul,
             alpha=0.8
         )
 
@@ -316,7 +283,7 @@ def draw_spiral_bloom(t, y, feats, complexity, seed, emotion_mul):
 
 
 # ---------------------------------------------------------
-# SIDEBAR UI (Thickness 제거됨)
+# SIDEBAR UI
 # ---------------------------------------------------------
 st.sidebar.header("Drawing Controls")
 
@@ -328,23 +295,55 @@ drawing_style = st.sidebar.selectbox(
 complexity = st.sidebar.slider("Complexity", 1, 10, 5)
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
-# API Key (optional)
-st.sidebar.header("API Settings (optional)")
-api_key = st.sidebar.text_input(
-    "AssemblyAI API Key",
-    placeholder="Enter your AssemblyAI API key...",
-    type="password"
-)
 
-if api_key:
-    st.sidebar.success("API Key registered ✔")
-else:
-    st.sidebar.info("API Key not set (emotion auto-detection disabled)")
+# ---------------------------------------------------------
+# (2) Upload Audio
+# ---------------------------------------------------------
+st.subheader("1️⃣ Upload Audio")
 
+uploaded_file = st.file_uploader("Upload WAV or MP3", type=["wav", "mp3"])
+
+if not uploaded_file:
+    st.stop()
+
+st.audio(uploaded_file)
+
+with st.spinner("Analyzing audio…"):
+    t, y_ds, feats = analyze_audio(uploaded_file)
 
 
 # ---------------------------------------------------------
-# Emotion-Based Line Thickness Guide
+# (3) Extracted Audio Features
+# ---------------------------------------------------------
+st.subheader("2️⃣ Extracted Audio Features")
+st.json(feats)
+
+
+# ---------------------------------------------------------
+# (4) Generated Drawing
+# ---------------------------------------------------------
+st.subheader("3️⃣ Generated Drawing")
+
+if drawing_style == "Line Art":
+    img_buf = draw_line_art(t, y_ds, feats, complexity, seed, emotion_mul)
+elif drawing_style == "Scribble Art":
+    img_buf = draw_scribble_art(t, y_ds, feats, complexity, seed, emotion_mul)
+elif drawing_style == "Contour Wave":
+    img_buf = draw_contour_wave(t, y_ds, feats, complexity, seed, emotion_mul)
+elif drawing_style == "Particle Drift":
+    img_buf = draw_particle_drift(t, y_ds, feats, complexity, seed, emotion_mul)
+else:
+    img_buf = draw_spiral_bloom(t, y_ds, feats, complexity, seed, emotion_mul)
+
+st.image(
+    img_buf,
+    caption=f"{drawing_style} – audio-driven multi-color drawing",
+    use_container_width=True
+)
+
+
+# ---------------------------------------------------------
+# (5) 🧵 Emotion-Based Line Thickness Guide
 # ---------------------------------------------------------
 st.markdown("## 🧵 Emotion-Based Line Thickness Guide")
 st.markdown("""
@@ -358,65 +357,12 @@ Each emotion influences the **thickness of the lines** in the artwork.
 - **fear** → thinner, weaker lines (0.7×)  
 - **sadness** → the thinnest and most delicate lines (0.5×)  
 
-This allows emotions to shape the *physical weight* of the drawing,
-making expressive voices bold and powerful, while quiet emotions remain soft and subtle.
+This allows emotions to shape the weight and presence of the artwork.
 """)
 
 
 # ---------------------------------------------------------
-# MAIN UI
-# ---------------------------------------------------------
-st.subheader("1️⃣ Upload Audio")
-
-uploaded_file = st.file_uploader("Upload WAV or MP3", type=["wav", "mp3"])
-
-if uploaded_file:
-    st.audio(uploaded_file)
-
-    with st.spinner("Analyzing audio…"):
-        try:
-            t, y_ds, feats = analyze_audio(uploaded_file)
-        except Exception as e:
-            st.error("Audio loading failed.")
-            st.code(str(e))
-            st.stop()
-
-    st.subheader("2️⃣ Extracted Audio Features")
-    st.json(feats)
-
-    st.subheader("3️⃣ Generated Drawing")
-
-    if drawing_style == "Line Art":
-        img_buf = draw_line_art(t, y_ds, feats, complexity, seed, emotion_mul)
-    elif drawing_style == "Scribble Art":
-        img_buf = draw_scribble_art(t, y_ds, feats, complexity, seed, emotion_mul)
-    elif drawing_style == "Contour Wave":
-        img_buf = draw_contour_wave(t, y_ds, feats, complexity, seed, emotion_mul)
-    elif drawing_style == "Particle Drift":
-        img_buf = draw_particle_drift(t, y_ds, feats, complexity, seed, emotion_mul)
-    else:
-        img_buf = draw_spiral_bloom(t, y_ds, feats, complexity, seed, emotion_mul)
-
-    st.image(
-        img_buf,
-        caption=f"{drawing_style} – audio-driven multi-color drawing",
-        use_container_width=True
-    )
-
-    st.download_button(
-        "📥 Download Image",
-        img_buf,
-        file_name="wavesketch.png",
-        mime="image/png"
-    )
-
-else:
-    st.info("Please upload a WAV or MP3 file 🎵")
-
-
-
-# ---------------------------------------------------------
-# Color Interpretation Guide
+# (6) 🎨 Color Interpretation Guide
 # ---------------------------------------------------------
 st.markdown("## 🎨 Color Interpretation Guide")
 st.markdown("""

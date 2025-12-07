@@ -303,6 +303,29 @@ emotion_conf = st.sidebar.slider("Emotion Confidence", 0.0, 1.0, 0.7)
 
 
 # ---------------------------------------------------------
+# Emotion Transparency Guide (삽입된 설명)
+# ---------------------------------------------------------
+st.markdown("## 🫧 Emotion-Based Transparency Guide")
+st.markdown("""
+Each emotion influences the **transparency (alpha value)** of the strokes.
+
+Brighter emotions generate stronger and more vivid lines,  
+while heavier emotions create softer and more delicate impressions.
+
+### Emotion → Alpha Range Mapping  
+- **joy**: *0.8–1.0* — bright and clearly defined  
+- **sadness**: *0.2–0.4* — faint, blurred, and fading  
+- **anger**: *0.75–1.0* — bold, intense, and dominant  
+- **fear**: *0.3–0.6* — trembling, unstable presence  
+- **surprise**: *0.5–0.8* — sharp and striking  
+- **neutral**: *0.55–0.75* — balanced transparency  
+
+This transparency modulation adds emotional nuance to the artwork,  
+making each generated visual feel more expressive and alive.
+""")
+
+
+# ---------------------------------------------------------
 # MAIN UI
 # ---------------------------------------------------------
 st.subheader("1️⃣ Upload Audio")

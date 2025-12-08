@@ -199,26 +199,44 @@ st.download_button(
     file_name="WaveSketch.png",
     mime="image/png"
 )
-
 # ---------------------------------------------------------
-# Guides
+# (5) 🧵 Emotion-Based Line Thickness Guide
 # ---------------------------------------------------------
-st.markdown("## 🧵 Emotion → Line Thickness Guide")
+st.markdown("## 🧵 Emotion-Based Line Thickness Guide")
 st.markdown("""
-Emotion controls **line thickness**:
-- Joy → very thick  
-- Anger → heaviest  
-- Surprise → medium-thick  
-- Neutral → standard thickness  
-- Fear → thin  
-- Sadness → thinnest  
+Each emotion influences the **thickness of the lines** in the artwork.
+
+### Emotion → Thickness Mapping  
+- **joy** → much thicker, lively lines (~1.8×)  
+- **anger** → the strongest and thickest strokes (~2.3×)  
+- **surprise** → slightly thicker and sharper lines (~1.4×)  
+- **neutral** → standard thickness (1.0×)  
+- **fear** → thinner, more fragile lines (~0.6×)  
+- **sadness** → the thinnest and most delicate strokes (~0.4×)  
+
+On top of this, **louder moments** in your voice make lines locally thicker,
+while quieter parts stay almost thread-like.
 """)
 
-st.markdown("## 🎨 Audio Feature → Color Guide")
+
+# ---------------------------------------------------------
+# (6) 🎨 Color Interpretation Guide
+# ---------------------------------------------------------
+st.markdown("## 🎨 Color Interpretation Guide")
 st.markdown("""
-### Color = Audio  
-- **Brightness** → amplitude  
-- **Hue (blue→red)** → pitch  
-- **Saturation** → RMS (energy)  
-- **Color jitter** → ZCR (noise level)  
+### 🌗 Dark vs Bright Colors
+Quiet parts → darker  
+Loud parts → brighter  
+
+### 🌈 Hue (Cool → Warm)
+Low pitch → blue  
+Mid pitch → green/yellow  
+High pitch → orange/red  
+
+### 🎯 Saturation
+High RMS → vivid colors  
+Low RMS → soft pastel  
+
+### 🌀 ZCR
+Noisy sections → color jitter  
 """)

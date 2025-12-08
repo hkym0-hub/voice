@@ -2,6 +2,7 @@
 # WaveSketch (B-Version): Emotion = Thickness / Audio = Color
 # =========================================================
 
+
 import io
 import random
 import numpy as np
@@ -14,7 +15,7 @@ import colorsys
 # Streamlit 기본 설정
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="WaveSketch - Emotion Thickness + Audio Colors",
+    page_title="WaveSketch - Multi Drawing Styles",
     page_icon="🎧",
     layout="wide"
 )
@@ -23,7 +24,7 @@ st.set_page_config(
 st.title("🎧 WaveSketch: Emotion-Driven Line Thickness + Audio-Driven Colors")
 st.write(
     "Upload a short **WAV or MP3** file.\n"
-    "**Emotion controls the line thickness**, and **audio features control the colors**.\n\n"
+    "**Emotion controls line thickness**, and **audio features control the colors**.\n\n"
     "⚠️ **This app requires an AssemblyAI API Key to start.**"
 )
 st.caption("m4a는 서버환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용하세요.")
@@ -42,6 +43,7 @@ def get_emotion_thickness_multiplier(emotion):
     }
     return table.get(emotion, 1.0)
 
+
 # ---------------------------------------------------------
 # Utility
 # ---------------------------------------------------------
@@ -51,6 +53,7 @@ def render_figure_to_bytes(fig):
     buf.seek(0)
     plt.close(fig)
     return buf
+
 
 # ---------------------------------------------------------
 # AUDIO ANALYSIS
@@ -85,6 +88,7 @@ def analyze_audio(uploaded_file, target_points=1400):
 
     return t, y_ds, features
 
+
 # ---------------------------------------------------------
 # COLOR ENGINE → Audio controls color
 # ---------------------------------------------------------
@@ -96,14 +100,14 @@ def get_audio_color(amplitude, pitch, rms, zcr):
     h = (0.65 - 0.65 * pitch_norm) % 1.0
 
     s = np.clip(rms * 12, 0.25, 1.0)
-
     h = (h + (random.random() - 0.5) * zcr * 0.2) % 1.0
 
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return (float(r), float(g), float(b))
 
+
 # ---------------------------------------------------------
-# Draw Style – Only Line Art (Stable)
+# (A) Line Art Style (Original)
 # ---------------------------------------------------------
 def draw_line_style(t, y, feats, seed, emotion_mul):
     random.seed(seed)
@@ -132,10 +136,104 @@ def draw_line_style(t, y, feats, seed, emotion_mul):
 
     return render_figure_to_bytes(fig)
 
+
+# ---------------------------------------------------------
+# (B) Ribbon Flow Style
+# ---------------------------------------------------------
+def draw_ribbon_style(t, y, feats, seed, emotion_mul):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    amp = y / (np.max(np.abs(y)) + 1e-8)
+    base_y = 0.5 + amp * 0.25
+
+    rms, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    ax.axis("off")
+
+    for offset in np.linspace(-0.04, 0.04, 8):
+        for i in range(len(t) - 1):
+            color = get_audio_color(amp[i], pitch, rms, zcr)
+            ax.plot(
+                t[i:i+2],
+                (base_y[i:i+2] + offset),
+                color=color,
+                linewidth=0.8 * emotion_mul,
+                alpha=0.6
+            )
+
+    return render_figure_to_bytes(fig)
+
+
+# ---------------------------------------------------------
+# (C) Scatter Glow Style — 업그레이드 점 크기 반응
+# ---------------------------------------------------------
+def draw_scatter_glow_style(t, y, feats, seed, emotion_mul):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    amp = np.abs(y) / (np.max(np.abs(y)) + 1e-8)
+    rms, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    ax.axis("off")
+
+    glow_size = (amp * 80 * emotion_mul) + (rms * 300) + 5
+
+    for i in range(len(t)):
+        color = get_audio_color(amp[i], pitch, rms, zcr)
+
+        ax.scatter(
+            t[i],
+            0.5 + amp[i] * 0.3,
+            s=glow_size[i],
+            color=color,
+            alpha=0.75
+        )
+
+    return render_figure_to_bytes(fig)
+
+
+# ---------------------------------------------------------
+# (D) Wave Gradient Style
+# ---------------------------------------------------------
+def draw_wave_gradient_style(t, y, feats, seed, emotion_mul):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    amp = y / (np.max(np.abs(y)) + 1e-8)
+    rms, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    ax.axis("off")
+
+    for layer in np.linspace(0.2, 1, 18):
+        alpha = 0.05 + 0.03 * layer
+        offset = (layer - 0.6) * 0.15
+
+        for i in range(len(t) - 1):
+            color = get_audio_color(amp[i], pitch, rms, zcr)
+            ax.plot(
+                t[i:i+2],
+                0.5 + amp[i:i+2] * layer * 0.2 + offset,
+                color=color,
+                linewidth=emotion_mul * 0.3,
+                alpha=alpha
+            )
+
+    return render_figure_to_bytes(fig)
+
+
 # ---------------------------------------------------------
 # SIDEBAR UI
 # ---------------------------------------------------------
 st.sidebar.header("Drawing Controls")
+
+draw_style = st.sidebar.selectbox(
+    "Drawing Style",
+    ["Line Art", "Ribbon Flow", "Scatter Glow", "Wave Gradient"]
+)
 
 emotion_label = st.sidebar.selectbox(
     "Emotion (Affects Thickness)",
@@ -160,7 +258,7 @@ if not api_key:
     st.stop()
 
 # ---------------------------------------------------------
-# Upload Audio (API key 있어야 활성화)
+# Upload Audio
 # ---------------------------------------------------------
 st.subheader("1️⃣ Upload Audio")
 uploaded_file = st.file_uploader("Upload WAV or MP3", type=["wav", "mp3"])
@@ -184,11 +282,18 @@ st.json(feats)
 # ---------------------------------------------------------
 st.subheader("3️⃣ Generated Drawing")
 
-img_buf = draw_line_style(t, y_ds, feats, seed, emotion_mul)
+if draw_style == "Line Art":
+    img_buf = draw_line_style(t, y_ds, feats, seed, emotion_mul)
+elif draw_style == "Ribbon Flow":
+    img_buf = draw_ribbon_style(t, y_ds, feats, seed, emotion_mul)
+elif draw_style == "Scatter Glow":
+    img_buf = draw_scatter_glow_style(t, y_ds, feats, seed, emotion_mul)
+elif draw_style == "Wave Gradient":
+    img_buf = draw_wave_gradient_style(t, y_ds, feats, seed, emotion_mul)
 
 st.image(
     img_buf,
-    caption=f"Emotion: {emotion_label} / Audio-Based Colors",
+    caption=f"Style: {draw_style} — Emotion: {emotion_label}",
     use_container_width=True
 )
 
@@ -199,6 +304,8 @@ st.download_button(
     file_name="WaveSketch.png",
     mime="image/png"
 )
+
+
 # ---------------------------------------------------------
 # (5) 🧵 Emotion-Based Line Thickness Guide
 # ---------------------------------------------------------

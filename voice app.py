@@ -1,6 +1,6 @@
 # =========================================================
-# WaveSketch (B-Version + AssemblyAI Emotion Auto-Detection)
-# Emotion = Thickness / Audio = Color
+# WaveSketch (Auto Emotion Version Only)
+# Emotion = Auto-Detected by AssemblyAI / Audio = Color
 # =========================================================
 
 import io
@@ -17,23 +17,24 @@ import time
 # Streamlit 기본 설정
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="WaveSketch - Emotion Thickness + Audio Colors",
+    page_title="WaveSketch - Auto Emotion Detection",
     page_icon="🎧",
     layout="wide"
 )
 
-# ----------------------- (1) 안내 텍스트 -----------------------
-st.title("🎧 WaveSketch: Emotion-Driven Line Thickness + Audio-Driven Colors (Auto Mode Supported)")
-st.write(
-    "Upload a short **WAV or MP3** file.\n"
-    "- **Audio → Colors**\n"
-    "- **Emotion → Line Thickness**\n"
-    "- Optionally: **Auto-detect emotion using AssemblyAI**"
-)
-st.caption("⚠️ m4a는 서버환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용하세요.")
+# ----------------------- 안내 텍스트 -----------------------
+st.title("🎧 WaveSketch: Auto Emotion + Audio Colors")
+st.write("""
+Upload a short **WAV or MP3** file.
+
+- **Emotion is automatically detected from the audio**  
+- **Detected emotion controls line thickness**  
+- **Audio features control the colors**
+""")
+st.caption("⚠️ m4a는 서버 환경 문제로 지원되지 않습니다.")
 
 # ---------------------------------------------------------
-# Emotion → Line Thickness (B Version)
+# Emotion → Line Thickness
 # ---------------------------------------------------------
 def get_emotion_thickness_multiplier(emotion):
     table = {
@@ -57,7 +58,7 @@ def render_figure_to_bytes(fig):
     return buf
 
 # ---------------------------------------------------------
-# AssemblyAI: Upload + Sentiment Analysis
+# AssemblyAI Emotion Detection
 # ---------------------------------------------------------
 def assemblyai_upload(api_key, file):
     upload_url = "https://api.assemblyai.com/v2/upload"
@@ -68,25 +69,25 @@ def assemblyai_upload(api_key, file):
     return response.json().get("upload_url")
 
 def assemblyai_request_sentiment(api_key, audio_url):
-    endpoint = "https://api.assemblyai.com/v2/transcript"
-    json_data = {
+    url = "https://api.assemblyai.com/v2/transcript"
+    headers = {"authorization": api_key}
+    data = {
         "audio_url": audio_url,
         "sentiment_analysis": True
     }
-    headers = {"authorization": api_key}
 
-    response = requests.post(endpoint, json=json_data, headers=headers)
-    return response.json().get("id")
+    res = requests.post(url, json=data, headers=headers).json()
+    return res.get("id")
 
 def assemblyai_poll(api_key, transcript_id):
-    endpoint = f"https://api.assemblyai.com/v2/transcript/{transcript_id}"
+    url = f"https://api.assemblyai.com/v2/transcript/{transcript_id}"
     headers = {"authorization": api_key}
 
     while True:
-        response = requests.get(endpoint, headers=headers).json()
-        if response["status"] == "completed":
-            return response
-        elif response["status"] == "error":
+        res = requests.get(url, headers=headers).json()
+        if res["status"] == "completed":
+            return res
+        if res["status"] == "error":
             return None
         time.sleep(1)
 
@@ -102,7 +103,7 @@ def extract_dominant_emotion(result_json):
     return max(counts, key=counts.get)
 
 # ---------------------------------------------------------
-# AUDIO ANALYSIS
+# AUDIO ANALYSIS → Color Controls
 # ---------------------------------------------------------
 def analyze_audio(uploaded_file, target_points=1400):
     uploaded_file.seek(0)
@@ -135,21 +136,21 @@ def analyze_audio(uploaded_file, target_points=1400):
     return t, y_ds, features
 
 # ---------------------------------------------------------
-# COLOR ENGINE → Audio controls color
+# COLOR ENGINE
 # ---------------------------------------------------------
 def get_audio_color(amplitude, pitch, rms, zcr):
     amp = np.clip(abs(amplitude), 0, 1)
     v = 0.3 + amp * 0.7
     pitch_norm = np.clip((pitch - 80) / 500, 0, 1)
-    h = (0.65 - 0.65 * pitch_norm) % 1.0
+    h = (0.65 - pitch_norm * 0.65) % 1.0
     s = np.clip(rms * 12, 0.25, 1.0)
 
     h = (h + (random.random() - 0.5) * zcr * 0.2) % 1.0
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
-    return (float(r), float(g), float(b))
+    return (r, g, b)
 
 # ---------------------------------------------------------
-# Drawing Engine
+# DRAWING
 # ---------------------------------------------------------
 def draw_line_style(t, y, feats, seed, emotion_mul):
     random.seed(seed)
@@ -158,12 +159,12 @@ def draw_line_style(t, y, feats, seed, emotion_mul):
     amp = y / (np.max(np.abs(y)) + 1e-8)
     base_y = 0.5 + amp * 0.35
 
-    rms, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
-
     fig, ax = plt.subplots(figsize=(7, 6))
     ax.axis("off")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
+
+    rms, pitch, zcr = feats["rms"], feats["pitch"], feats["zcr"]
 
     for i in range(len(t) - 1):
         color = get_audio_color(amp[i], pitch, rms, zcr)
@@ -178,22 +179,21 @@ def draw_line_style(t, y, feats, seed, emotion_mul):
     return render_figure_to_bytes(fig)
 
 # ---------------------------------------------------------
-# SIDEBAR UI
+# SIDEBAR → Only API Key + Seed
 # ---------------------------------------------------------
-st.sidebar.header("Drawing Controls")
+st.sidebar.header("Settings")
 
 api_key = st.sidebar.text_input(
-    "AssemblyAI API Key (Optional)",
+    "AssemblyAI API Key (Required)",
     placeholder="Enter your API key...",
     type="password"
 )
 
-manual_emotion = st.sidebar.selectbox(
-    "Manual Emotion (used only if API Key is empty)",
-    ["neutral", "joy", "sadness", "anger", "fear", "surprise"]
-)
-
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
+
+if not api_key:
+    st.warning("⚠️ Please enter your AssemblyAI API Key to detect audio emotion automatically.")
+    st.stop()
 
 # ---------------------------------------------------------
 # Upload Audio
@@ -206,34 +206,30 @@ if not uploaded_file:
 
 st.audio(uploaded_file)
 
-with st.spinner("Analyzing audio…"):
+# ---------------------------------------------------------
+# Analyze Audio Emotion Automatically
+# ---------------------------------------------------------
+st.subheader("2️⃣ Detecting Emotion from Audio…")
+
+with st.spinner("Uploading & analyzing emotion…"):
+    audio_url = assemblyai_upload(api_key, uploaded_file)
+    transcript_id = assemblyai_request_sentiment(api_key, audio_url)
+    result_json = assemblyai_poll(api_key, transcript_id)
+
+detected_emotion = extract_dominant_emotion(result_json)
+emotion_mul = get_emotion_thickness_multiplier(detected_emotion)
+
+st.success(f"🎭 Detected Emotion: **{detected_emotion}**")
+st.caption("Emotion automatically controls line thickness.")
+
+# ---------------------------------------------------------
+# Extracted Audio Features
+# ---------------------------------------------------------
+st.subheader("3️⃣ Audio Feature Extraction")
+
+with st.spinner("Extracting audio features…"):
     t, y_ds, feats = analyze_audio(uploaded_file)
 
-# ---------------------------------------------------------
-# Emotion Auto-Detection (Optional)
-# ---------------------------------------------------------
-if api_key:
-    st.subheader("2️⃣ Detecting Emotion (AssemblyAI)")
-    with st.spinner("Running emotion analysis…"):
-        audio_url = assemblyai_upload(api_key, uploaded_file)
-        transcript_id = assemblyai_request_sentiment(api_key, audio_url)
-        result_json = assemblyai_poll(api_key, transcript_id)
-
-    detected_emotion = extract_dominant_emotion(result_json)
-    st.success(f"Detected Emotion: **{detected_emotion}**")
-
-    emotion_label = detected_emotion
-else:
-    st.subheader("2️⃣ Manual Emotion Selection")
-    emotion_label = manual_emotion
-    st.info(f"Emotion set to: **{manual_emotion}** (No API Key provided)")
-
-emotion_mul = get_emotion_thickness_multiplier(emotion_label)
-
-# ---------------------------------------------------------
-# Extracted Features
-# ---------------------------------------------------------
-st.subheader("3️⃣ Extracted Audio Features")
 st.json(feats)
 
 # ---------------------------------------------------------
@@ -245,7 +241,7 @@ img_buf = draw_line_style(t, y_ds, feats, seed, emotion_mul)
 
 st.image(
     img_buf,
-    caption=f"Emotion: {emotion_label} / Audio-Based Colors",
+    caption=f"Emotion: {detected_emotion} / Auto Emotion Analysis",
     use_container_width=True
 )
 
@@ -255,26 +251,3 @@ st.download_button(
     file_name="WaveSketch.png",
     mime="image/png"
 )
-
-# ---------------------------------------------------------
-# Guides
-# ---------------------------------------------------------
-st.markdown("## 🧵 Emotion → Line Thickness Guide")
-st.markdown("""
-Emotion controls **line thickness**:
-- Joy → very thick  
-- Anger → heaviest  
-- Surprise → medium-thick  
-- Neutral → standard  
-- Fear → thin  
-- Sadness → thinnest  
-""")
-
-st.markdown("## 🎨 Audio Feature → Color Guide")
-st.markmarkdown("""
-### Color = Audio  
-- **Brightness** → amplitude  
-- **Hue (blue→red)** → pitch  
-- **Saturation** → RMS (energy)  
-- **Color jitter** → ZCR (noise level)  
-""")

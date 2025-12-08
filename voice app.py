@@ -23,12 +23,13 @@ st.set_page_config(
 st.title("🎧 WaveSketch: Emotion-Driven Line Thickness + Audio-Driven Colors")
 st.write(
     "Upload a short **WAV or MP3** file.\n"
-    "**Emotion controls the line thickness**, and **audio features control the colors**."
+    "**Emotion controls the line thickness**, and **audio features control the colors**.\n\n"
+    "⚠️ **This app requires an AssemblyAI API Key to start.**"
 )
-st.caption("⚠️ m4a는 서버환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용하세요.")
+st.caption("m4a는 서버환경 문제로 지원되지 않습니다. WAV 또는 MP3를 사용하세요.")
 
 # ---------------------------------------------------------
-# Emotion → Line Thickness (B Version)
+# Emotion → Line Thickness
 # ---------------------------------------------------------
 def get_emotion_thickness_multiplier(emotion):
     table = {
@@ -144,7 +145,7 @@ emotion_mul = get_emotion_thickness_multiplier(emotion_label)
 
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
-st.sidebar.header("AssemblyAI API (Optional)")
+st.sidebar.header("AssemblyAI API Key (Required)")
 api_key = st.sidebar.text_input(
     "Enter API Key…",
     placeholder="Enter your API key...",
@@ -152,7 +153,14 @@ api_key = st.sidebar.text_input(
 )
 
 # ---------------------------------------------------------
-# Upload Audio
+# ❗ API Key 없으면 앱 실행 중단
+# ---------------------------------------------------------
+if not api_key:
+    st.error("🚫 AssemblyAI API Key is required to run WaveSketch.")
+    st.stop()
+
+# ---------------------------------------------------------
+# Upload Audio (API key 있어야 활성화)
 # ---------------------------------------------------------
 st.subheader("1️⃣ Upload Audio")
 uploaded_file = st.file_uploader("Upload WAV or MP3", type=["wav", "mp3"])
@@ -184,7 +192,7 @@ st.image(
     use_container_width=True
 )
 
-# ⭐⭐ NEW: DOWNLOAD BUTTON ⭐⭐
+# ⭐⭐ DOWNLOAD BUTTON ⭐⭐
 st.download_button(
     label="⬇️ Download Image",
     data=img_buf,

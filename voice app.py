@@ -1,5 +1,5 @@
 # =========================================================
-# WaveSketch (Auto Emotion Version Only)
+# WaveSketch (Auto Emotion Version Only / Safe Error-Free)
 # Emotion = Auto-Detected by AssemblyAI / Audio = Color
 # =========================================================
 
@@ -27,11 +27,11 @@ st.title("🎧 WaveSketch: Auto Emotion + Audio Colors")
 st.write("""
 Upload a short **WAV or MP3** file.
 
-- **Emotion is automatically detected from the audio**  
-- **Detected emotion controls line thickness**  
-- **Audio features control the colors**
+- Emotion is **automatically detected** from the audio  
+- Detected emotion controls **line thickness**  
+- Audio features control the **colors**
 """)
-st.caption("⚠️ m4a는 서버 환경 문제로 지원되지 않습니다.")
+st.caption("⚠️ m4a 파일은 Streamlit Cloud에서 지원되지 않습니다.")
 
 # ---------------------------------------------------------
 # Emotion → Line Thickness
@@ -91,12 +91,24 @@ def assemblyai_poll(api_key, transcript_id):
             return None
         time.sleep(1)
 
+# ---------------------------------------------------------
+# SAFE: 감정 분석 결과가 없을 때도 절대 오류 안 나게!
+# ---------------------------------------------------------
 def extract_dominant_emotion(result_json):
-    if not result_json or "sentiment_analysis_results" not in result_json:
+
+    # API 자체 실패 → neutral
+    if not result_json:
+        return "neutral"
+
+    # 음악 파일·효과음·비언어적 오디오에서 자주 발생
+    results = result_json.get("sentiment_analysis_results")
+
+    # 감정 분석 불가 → neutral
+    if not results or len(results) == 0:
         return "neutral"
 
     counts = {}
-    for item in result_json["sentiment_analysis_results"]:
+    for item in results:
         emo = item["sentiment"].lower()
         counts[emo] = counts.get(emo, 0) + 1
 
@@ -144,8 +156,8 @@ def get_audio_color(amplitude, pitch, rms, zcr):
     pitch_norm = np.clip((pitch - 80) / 500, 0, 1)
     h = (0.65 - pitch_norm * 0.65) % 1.0
     s = np.clip(rms * 12, 0.25, 1.0)
-
     h = (h + (random.random() - 0.5) * zcr * 0.2) % 1.0
+
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return (r, g, b)
 
@@ -192,7 +204,7 @@ api_key = st.sidebar.text_input(
 seed = st.sidebar.slider("Random Seed", 0, 9999, 42)
 
 if not api_key:
-    st.warning("⚠️ Please enter your AssemblyAI API Key to detect audio emotion automatically.")
+    st.warning("⚠️ Enter your AssemblyAI API Key to auto-detect emotion.")
     st.stop()
 
 # ---------------------------------------------------------
@@ -207,11 +219,11 @@ if not uploaded_file:
 st.audio(uploaded_file)
 
 # ---------------------------------------------------------
-# Analyze Audio Emotion Automatically
+# AUTO EMOTION DETECTION
 # ---------------------------------------------------------
 st.subheader("2️⃣ Detecting Emotion from Audio…")
 
-with st.spinner("Uploading & analyzing emotion…"):
+with st.spinner("Uploading & analyzing…"):
     audio_url = assemblyai_upload(api_key, uploaded_file)
     transcript_id = assemblyai_request_sentiment(api_key, audio_url)
     result_json = assemblyai_poll(api_key, transcript_id)
@@ -223,11 +235,11 @@ st.success(f"🎭 Detected Emotion: **{detected_emotion}**")
 st.caption("Emotion automatically controls line thickness.")
 
 # ---------------------------------------------------------
-# Extracted Audio Features
+# Audio Feature Extraction
 # ---------------------------------------------------------
-st.subheader("3️⃣ Audio Feature Extraction")
+st.subheader("3️⃣ Audio Features")
 
-with st.spinner("Extracting audio features…"):
+with st.spinner("Extracting features…"):
     t, y_ds, feats = analyze_audio(uploaded_file)
 
 st.json(feats)
